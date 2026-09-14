@@ -119,10 +119,7 @@ func extractDubboServiceAnnotations(ctx PatternContext, result *PatternResult, s
 		attrs := submatch(ctx.Source, match, 4)
 		className := ctx.Source[match[6]:match[7]]
 		implemented := submatch(ctx.Source, match, 8)
-		fallback := ""
-		if implemented != "" {
-			fallback = strings.TrimSpace(strings.Split(implemented, ",")[0])
-		}
+		fallback := firstImplementedInterface(implemented)
 		interfaceResolution := dubboInterface(ctx.Source, attrs, fallback)
 		addDubboEntity(ctx, result, seenRefs, "provider", interfaceResolution, className, "annotation", attrs, match[0], className)
 		openBrace := match[1] - 1
@@ -130,6 +127,35 @@ func extractDubboServiceAnnotations(ctx PatternContext, result *PatternResult, s
 			extractDubboProviderMethods(ctx, result, seenRefs, interfaceResolution, className, attrs, ctx.Source[openBrace:matchingBrace(ctx.Source, openBrace)], openBrace)
 		}
 	}
+}
+
+// firstImplementedInterface returns the first entry of a class's `implements`
+// list as a raw type name. It splits only on top-level commas, so
+// `implements Handler<String, Order>` is one entry rather than `Handler<String`,
+// and drops the type arguments so what gets resolved is a name an import or the
+// file's package can actually qualify.
+func firstImplementedInterface(implemented string) string {
+	depth := 0
+	end := len(implemented)
+	for index, char := range implemented {
+		if char == '<' {
+			depth++
+			continue
+		}
+		if char == '>' && depth > 0 {
+			depth--
+			continue
+		}
+		if char == ',' && depth == 0 {
+			end = index
+			break
+		}
+	}
+	first := strings.TrimSpace(implemented[:end])
+	if cut := strings.IndexByte(first, '<'); cut >= 0 {
+		first = strings.TrimSpace(first[:cut])
+	}
+	return first
 }
 
 func extractDubboConsumerCalls(ctx PatternContext, result *PatternResult, seenRefs map[string]bool, interfaceResolution dubboInterfaceResolution, fieldName, attrs string) {

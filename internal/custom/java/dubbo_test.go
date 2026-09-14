@@ -214,3 +214,28 @@ func assertDubboProperty(t *testing.T, entity *SecondaryEntity, key string, want
 		t.Fatalf("property %s = %#v, want %#v", key, got, want)
 	}
 }
+
+// A Dubbo interface declared with type arguments must resolve to its raw type:
+// splitting the `implements` list on every comma turned
+// `implements Handler<String, Order>` into the non-existent type
+// `Handler<String`, which then got qualified with the implementation's own
+// package and silently never matched the consumer side.
+func TestDubboProviderGenericInterfaceResolvesRawType(t *testing.T) {
+	source := `
+package com.acme.billing.impl;
+
+import com.example.api.Handler;
+import org.apache.dubbo.config.annotation.DubboService;
+
+@DubboService(version = "1.0.0")
+public class OrderHandler implements Handler<String, Order> {
+    public void handle(String key) {}
+}
+`
+	result := ExtractDubbo(PatternContext{Source: source, Language: "java", Framework: "dubbo", FilePath: "OrderHandler.java"})
+	provider := findDubboEntity(result, "provider")
+	assertDubboProperty(t, provider, "interface_fqn", "com.example.api.Handler")
+	if provider.Properties["interface_fqn_resolved"] != nil {
+		t.Fatalf("generic interface should resolve cleanly: %+v", provider.Properties)
+	}
+}
