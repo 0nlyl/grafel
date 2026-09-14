@@ -820,6 +820,10 @@ func (s *Server) routes() http.Handler {
 	// Go 1.22 ServeMux picks the more-specific path first.
 	mux.HandleFunc("POST /api/v2/groups/import", s.handleV2GraphImport)
 	mux.HandleFunc("GET /api/v2/groups/{group}/export", s.handleV2GraphExport)
+	// Dedicated, server-filtered Dubbo call map. This intentionally avoids the
+	// generic /links payload because large groups can contain tens of thousands
+	// of unrelated cross-repo edges.
+	mux.HandleFunc("GET /api/v2/groups/{group}/dubbo", s.handleV2Dubbo)
 	// Graph — the WebUI v2 hero surface payload (nodes/edges/communities/repos).
 	// Carries pagerank + source_file for cosmos.gl node sizing + module group-by.
 	// PH1c (#2087): accepts ?ref= to query a specific git ref's graph.

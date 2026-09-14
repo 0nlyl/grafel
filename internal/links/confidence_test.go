@@ -9,6 +9,15 @@ func TestScoreImport_TopOfBand(t *testing.T) {
 	}
 }
 
+func TestScoreDubbo_MetadataQuality(t *testing.T) {
+	if got := ScoreDubbo(true); got != 1.0 {
+		t.Fatalf("exact Dubbo score = %v, want 1.0", got)
+	}
+	if got := ScoreDubbo(false); got < 0.8 || got >= 1.0 {
+		t.Fatalf("inferred Dubbo score = %v, want in [0.8, 1.0)", got)
+	}
+}
+
 func TestScoreLabel_BandClamping(t *testing.T) {
 	cases := []struct {
 		name string

@@ -74,6 +74,8 @@ import type {
   GodNodesReply,
   QualityTrendsReply,
   GroupLinksReply,
+  DubboFilters,
+  DubboReport,
   GraphQLReport,
   IaCReport,
   DataflowReport,
@@ -948,6 +950,17 @@ export const api = {
     request<GroupLinksReply>(
       `/groups/${encodeURIComponent(groupId)}/links`,
     ),
+
+  getDubboReport: (groupId: string, filters: DubboFilters = {}) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    }
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return request<DubboReport>(
+      `/v2/groups/${encodeURIComponent(groupId)}/dubbo${suffix}`,
+    );
+  },
 
   // --- GraphQL resolver-effects (#4255) ---
   // Raw JSON (no v2 envelope) → `request`. Handler: handlers_graphql.go

@@ -286,12 +286,14 @@ func statGraphMtime(stateDir string) time.Time {
 // edge kind; the dashboard struct also accepts "kind" for backward compat
 // (tests and older files).  UnmarshalJSON prefers "relation" when present.
 type CrossRepoLink struct {
-	Source     string  `json:"source"`
-	Target     string  `json:"target"`
-	Kind       string  `json:"kind"`
-	Confidence float64 `json:"confidence,omitempty"`
-	Channel    string  `json:"channel,omitempty"`
-	Method     string  `json:"method,omitempty"`
+	Source     string            `json:"source"`
+	Target     string            `json:"target"`
+	Kind       string            `json:"kind"`
+	Confidence float64           `json:"confidence,omitempty"`
+	Channel    string            `json:"channel,omitempty"`
+	Method     string            `json:"method,omitempty"`
+	Identifier string            `json:"identifier,omitempty"`
+	Properties map[string]string `json:"properties,omitempty"`
 
 	// Enrichment fields resolved from the source/target entities at serve time
 	// (#4596). They are NOT persisted to the on-disk links file — UnmarshalJSON
@@ -321,13 +323,15 @@ type CrossRepoLink struct {
 // and an absent or empty "kind" key, the relation value is used as Kind.
 func (l *CrossRepoLink) UnmarshalJSON(b []byte) error {
 	type plain struct {
-		Source     string  `json:"source"`
-		Target     string  `json:"target"`
-		Kind       string  `json:"kind"`
-		Relation   string  `json:"relation"`
-		Confidence float64 `json:"confidence,omitempty"`
-		Channel    string  `json:"channel,omitempty"`
-		Method     string  `json:"method,omitempty"`
+		Source     string            `json:"source"`
+		Target     string            `json:"target"`
+		Kind       string            `json:"kind"`
+		Relation   string            `json:"relation"`
+		Confidence float64           `json:"confidence,omitempty"`
+		Channel    string            `json:"channel,omitempty"`
+		Method     string            `json:"method,omitempty"`
+		Identifier string            `json:"identifier,omitempty"`
+		Properties map[string]string `json:"properties,omitempty"`
 	}
 	var p plain
 	if err := json.Unmarshal(b, &p); err != nil {
@@ -342,6 +346,8 @@ func (l *CrossRepoLink) UnmarshalJSON(b []byte) error {
 	l.Confidence = p.Confidence
 	l.Channel = p.Channel
 	l.Method = p.Method
+	l.Identifier = p.Identifier
+	l.Properties = p.Properties
 	return nil
 }
 

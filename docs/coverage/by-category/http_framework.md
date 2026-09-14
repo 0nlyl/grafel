@@ -1,7 +1,7 @@
 <!-- DO NOT EDIT — generated from docs/coverage/registry.json by 'go run ./tools/coverage gen' -->
 # http_framework
 
-**Total**: 263 records · **C/C++**: 25 · **clojure**: 4 · **crystal**: 2 · **C#**: 18 · **dart**: 3 · **elixir**: 14 · **elm**: 1 · **erlang**: 1 · **F#**: 2 · **go**: 21 · **groovy**: 1 · **haskell**: 3 · **java**: 23 · **JS/TS**: 33 · **kotlin**: 18 · **lua**: 4 · **nim**: 1 · **OCaml**: 1 · **PHP**: 16 · **python**: 25 · **ReasonML**: 1 · **ReScript**: 1 · **ruby**: 9 · **rust**: 17 · **scala**: 14 · **swift**: 5
+**Total**: 264 records · **C/C++**: 25 · **clojure**: 4 · **crystal**: 2 · **C#**: 18 · **dart**: 3 · **elixir**: 14 · **elm**: 1 · **erlang**: 1 · **F#**: 2 · **go**: 21 · **groovy**: 1 · **haskell**: 3 · **java**: 24 · **JS/TS**: 33 · **kotlin**: 18 · **lua**: 4 · **nim**: 1 · **OCaml**: 1 · **PHP**: 16 · **python**: 25 · **ReasonML**: 1 · **ReScript**: 1 · **ruby**: 9 · **rust**: 17 · **scala**: 14 · **swift**: 5
 
 Back to [summary](../summary.md). Bucket: **Frameworks**.
 
@@ -297,6 +297,7 @@ Back to [summary](../summary.md). Bucket: **Frameworks**.
 | [C#](../by-language/csharp.md) | [grpc-dotnet](../detail/lang.csharp.framework.grpc-net.md) | — | ✅ 1/1 | ✅ 3/3 | ✅ 1/1 | 🟢 24/24 | 🟢 10/10 | |
 | [elixir](../by-language/elixir.md) | [elixir-grpc](../detail/lang.elixir.framework.grpc.md) | — | 🟢 1/1 | 🟢 4/4 | ✅ 1/1 | 🟡 13/24 | 🟡 6/10 | |
 | [go](../by-language/go.md) | [gRPC-Go (google.golang.org/grpc)](../detail/lang.go.framework.grpc.md) | — | ✅ 1/1 | 🔴 0/4 | 🔴 0/1 | 🔴 0/25 | 🟡 3/10 | |
+| [java](../by-language/java.md) | [Apache Dubbo](../detail/lang.java.framework.dubbo.md) | 🔴 0/6 | 🔴 0/1 | 🔴 0/4 | 🔴 0/1 | 🟡 1/25 | 🟡 3/17 | |
 | [java](../by-language/java.md) | [gRPC-Java (grpc-java / grpc-spring-boot-starter)](../detail/lang.java.framework.grpc.md) | — | ✅ 1/1 | 🔴 0/4 | 🔴 0/1 | 🔴 0/25 | 🟡 3/10 | |
 | [JS/TS](../by-language/jsts.md) | [GraphQL Resolvers (Apollo Server / GraphQL Yoga / etc.)](../detail/lang.jsts.framework.graphql-resolvers.md) | 🔴 0/6 | 🔴 0/1 | 🟡 1/4 | 🔴 0/1 | 🟡 24/25 | 🟡 6/17 | |
 | [JS/TS](../by-language/jsts.md) | [tRPC](../detail/lang.jsts.framework.trpc.md) | — | 🟢 1/1 | ✅ 4/4 | ✅ 1/1 | 🟢 24/24 | 🟢 7/7 | |

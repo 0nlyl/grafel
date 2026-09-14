@@ -54,6 +54,7 @@ import (
 // SHARED_LABEL, and STRING_MATCH links are not traversable call steps.
 var phantomEdgeMethods = map[string]bool{
 	MethodHTTP:    true,
+	MethodDubbo:   true,
 	"kafka_topic": true,
 	"ws_channel":  true,
 }

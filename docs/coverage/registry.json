@@ -34347,6 +34347,268 @@
       }
     },
     {
+      "id": "lang.java.framework.dubbo",
+      "category": "http_framework",
+      "subcategory": "rpc_framework",
+      "language": "java",
+      "label": "Apache Dubbo",
+      "capabilities": {
+        "Schema": {
+          "federation_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "procedure_extraction": {
+            "status": "partial",
+            "cites": ["internal/custom/java/dubbo.go","internal/custom/java/dubbo_test.go","internal/links/dubbo_pass.go","internal/links/dubbo_pass_test.go"],
+            "issue": "backfill:dictionary-completeness",
+            "notes": "Extracts method-level Dubbo consumer call sites from @DubboReference/@Reference fields and provider implementation methods from @DubboService/legacy @Service classes. Canonical interface, method, and arity properties allow the Dubbo pass to link uniquely matched client operations to provider operations. Programmatic and XML contracts remain contract-level when the call site or implementation class is not statically attributable.",
+            "verified_at": "2026-09-14"
+          },
+          "schema_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "type_graph_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Codegen": {
+          "client_codegen": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Transport": {
+          "transport_binding": {
+            "status": "partial",
+            "cites": ["internal/custom/java/dubbo.go","internal/extractors/config/dubbo_xml.go","internal/links/dubbo_pass.go","internal/links/dubbo_pass_test.go"],
+            "notes": "Extracts Apache Dubbo and legacy Alibaba Dubbo consumer/provider contracts from Java annotations, ReferenceBean\u003cT\u003e/ServiceBean\u003cT\u003e, and Spring XML \u003cdubbo:reference\u003e/\u003cdubbo:service\u003e. Wildcard Java imports retain candidate interface FQNs and resolve only when the indexed type graph identifies one candidate. The cross-repository pass prefers exact interface/group/version/protocol matches, then emits a lower-confidence inferred link only when unresolved or omitted optional metadata has no known conflict and identifies one external provider.",
+            "verified_at": "2026-09-14"
+          }
+        },
+        "Routing": {
+          "endpoint_deprecation_versioning": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "endpoint_pagination_posture": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "endpoint_response_codes": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "endpoint_synthesis": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "handler_attribution": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "route_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "View": {
+          "view_rendering": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Auth": {
+          "auth_coverage": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Validation": {
+          "dto_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "request_validation": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Middleware": {
+          "middleware_coverage": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "rate_limit_stamping": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Type System": {
+          "enum_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "interface_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "type_alias_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "type_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "DI": {
+          "di_binding_extraction": {
+            "status": "partial",
+            "cites": ["internal/custom/java/dubbo.go","internal/extractors/config/dubbo_xml.go","internal/extractors/config/dubbo_xml_test.go"],
+            "issue": "backfill:dictionary-completeness",
+            "notes": "Recognizes Dubbo ReferenceBean\u003cT\u003e/ServiceBean\u003cT\u003e Java factory methods and Spring XML reference/service id/ref bindings. Emits normalized rpc_client/rpc_service entities; it does not yet resolve every XML bean id or programmatic factory helper to an implementation class.",
+            "verified_at": "2026-09-14"
+          },
+          "di_injection_point": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "di_scope_resolution": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Testing": {
+          "tests_linkage": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Observability": {
+          "log_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "metric_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "trace_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        },
+        "Substrate": {
+          "confidence_overlay": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "config_consumption": {
+            "status": "partial",
+            "cites": ["internal/custom/java/dubbo.go","internal/custom/java/dubbo_test.go","internal/extractors/config/dubbo_xml.go","internal/extractors/config/dubbo_xml_test.go","internal/links/dubbo_pass.go"],
+            "issue": "backfill:dictionary-completeness",
+            "notes": "Preserves Dubbo group, version, and protocol values from annotations, Java setters, and XML attributes. Literal values are marked resolved; variables and ${...} placeholders remain explicitly unresolved and are excluded from automatic cross-repository linking.",
+            "verified_at": "2026-09-14"
+          },
+          "constant_propagation": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "db_effect": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "dead_code_detection": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "def_use_chain_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "env_fallback_recognition": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "error_flow": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "feature_flag_gating": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "fs_effect": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "http_effect": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "import_resolution_quality": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "module_cycle_detection": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "mutation_effect": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "pure_function_tagging": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "reachability_analysis": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "request_shape_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "request_sink_dataflow": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "response_shape_extraction": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "sanitizer_recognition": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "schema_drift_detection": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "taint_sink_detection": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "taint_source_detection": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "template_pattern_catalog": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          },
+          "vulnerability_finding": {
+            "status": "missing",
+            "issue": "backfill:dictionary-completeness"
+          }
+        }
+      }
+    },
+    {
       "id": "lang.java.framework.grpc",
       "category": "http_framework",
       "subcategory": "rpc_framework",
