@@ -34,6 +34,9 @@ func discoverDubboXML(repoRoot, rel string, spec configSpec, content []byte, con
 		if !ok || (start.Name.Local != "reference" && start.Name.Local != "service") {
 			continue
 		}
+		if !isDubboElementNamespace(start.Name.Space) {
+			continue
+		}
 		attrs := xmlAttributes(start.Attr)
 		interfaceName := attrs["interface"]
 		if interfaceName == "" {
@@ -79,6 +82,27 @@ func discoverDubboXML(repoRoot, rel string, spec configSpec, content []byte, con
 		relationships = append(relationships, types.RelationshipRecord{FromID: configID, ToID: id, Kind: string(types.RelationshipKindConfigures), Properties: relProps})
 	}
 	return entities, relationships
+}
+
+// isDubboElementNamespace reports whether a <reference>/<service> element was
+// declared under one of Dubbo's Spring schema namespaces. The file-level
+// `<dubbo:` gate only says the document contains Dubbo somewhere: a mixed
+// Spring context routinely also carries Gemini Blueprint (<osgi:service>,
+// <osgi:reference>), CXF (<jaxws:service>) or Camel elements whose local names
+// collide exactly, and those carry an `interface` attribute too. Without the
+// namespace check those become Dubbo contracts and can be linked to each other
+// across repositories.
+//
+// An undeclared `dubbo:` prefix leaves encoding/xml with the literal prefix as
+// the namespace, so that value is accepted as well.
+func isDubboElementNamespace(space string) bool {
+	switch space {
+	case "http://dubbo.apache.org/schema/dubbo",
+		"http://code.alibabatech.com/schema/dubbo",
+		"dubbo":
+		return true
+	}
+	return strings.HasSuffix(space, "/schema/dubbo")
 }
 
 func xmlAttributes(attrs []xml.Attr) map[string]string {
