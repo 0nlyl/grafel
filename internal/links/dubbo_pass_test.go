@@ -219,3 +219,49 @@ func dubboFixtureMethod(id, role, iface, group, version, method, arity, source s
 	entity["properties"].(map[string]any)["rpc_arity"] = arity
 	return entity
 }
+
+// The pass is cross-repository only: a repository that both serves and calls the
+// same facade (two Dubbo modules in one repo) must not link to itself. The exact
+// and the inferred arm each carry their own same-repo conjunct, and each is
+// lethal on its own, so this pins both.
+func TestDubboPassSkipsSameRepoConsumerProvider(t *testing.T) {
+	root := fixtureRoot(t)
+	writeFixture(t, root, fixtureGraph{Repo: "mono", Entities: []map[string]any{
+		dubboFixtureEntity("consumer", "SCOPE.Service", "rpc_client", "consumer", "com.example.OrderFacade", "orders", "1.0.0", "", "consumer.java"),
+		dubboFixtureEntity("provider", "SCOPE.Service", "rpc_service", "provider", "com.example.OrderFacade", "orders", "1.0.0", "", "provider.java"),
+	}})
+	writeFixture(t, root, fixtureGraph{Repo: "other", Entities: []map[string]any{
+		{"id": "unrelated", "name": "Unrelated", "kind": "SCOPE.Component", "source_file": "unrelated.java"},
+	}})
+	home := filepath.Join(root, "home")
+	if _, err := RunAllPasses("dubbo-same-repo", root, home); err != nil {
+		t.Fatal(err)
+	}
+	assertNoDubboLinks(t, filepath.Join(home, "groups", "dubbo-same-repo-links.json"))
+}
+
+// Metadata compatibility keys on whether a value is resolved, not on the raw
+// text: an unresolved "${dubbo.group}" placeholder makes no claim about the
+// group, so it must not read as a conflict with a provider that names one.
+// Without that, every property-driven consumer would stop linking.
+func TestDubboPassUnresolvedPlaceholderIsNotAConflict(t *testing.T) {
+	root := fixtureRoot(t)
+	consumer := dubboFixtureEntity("consumer", "SCOPE.Service", "rpc_client", "consumer", "com.example.OrderFacade", "${dubbo.group}", "1.0.0", "", "client.java")
+	consumer["properties"].(map[string]any)["group_resolved"] = "false"
+	writeFixture(t, root, fixtureGraph{Repo: "client", Entities: []map[string]any{consumer}})
+	writeFixture(t, root, fixtureGraph{Repo: "server", Entities: []map[string]any{
+		dubboFixtureEntity("provider", "SCOPE.Service", "rpc_service", "provider", "com.example.OrderFacade", "orders", "1.0.0", "", "server.java"),
+	}})
+	home := filepath.Join(root, "home")
+	if _, err := RunAllPasses("dubbo-placeholder", root, home); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := readDoc(filepath.Join(home, "groups", "dubbo-placeholder-links.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := onlyDubboLink(t, parsed)
+	if link.Properties[EdgeConfidenceKey] != ConfidenceInferred {
+		t.Fatalf("confidence marker = %q, want %q", link.Properties[EdgeConfidenceKey], ConfidenceInferred)
+	}
+}
