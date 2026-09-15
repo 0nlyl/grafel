@@ -3,6 +3,8 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/rpc/jsonrpc"
 	"os"
 	"strconv"
@@ -60,16 +62,22 @@ func dialAndPing(socketPath string, timeout time.Duration) bool {
 // times (with a short pause between attempts) before declaring the socket
 // unhealthy. A single failed probe is not enough to condemn a live daemon —
 // only sustained unreachability across every attempt does.
-func socketIsHealthy(socketPath string) bool {
+// It returns the number of probes actually made alongside the verdict, so a
+// caller that reports the budget which condemned a process reports what it
+// DID, not a constant it re-derives (#7050 review, M9): a re-derived constant
+// keeps claiming "3 attempts" after someone edits socketHealthProbeRetries to
+// 0, which is a diagnostic that lies by omission.
+func socketIsHealthy(socketPath string) (healthy bool, attempts int) {
 	for attempt := 0; attempt <= socketHealthProbeRetries; attempt++ {
+		attempts++
 		if socketHealthProbe(socketPath, socketHealthProbeTimeout) {
-			return true
+			return true, attempts
 		}
 		if attempt < socketHealthProbeRetries {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	return false
+	return false, attempts
 }
 
 // AcquirePIDFile writes the current pid to pidPath, returning a release
@@ -91,16 +99,59 @@ func socketIsHealthy(socketPath string) bool {
 // We deliberately do NOT use flock here: the goal is to detect another
 // daemon, and pid+syscall.Kill(pid,0) is portable across darwin/linux
 // without a new dependency.
-func AcquirePIDFile(pidPath, socketPath string) (release func(), err error) {
+func AcquirePIDFile(pidPath, socketPath string, logger *slog.Logger) (release func(), err error) {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	if existing, ok := readPID(pidPath); ok && pidIsLiveDaemonFunc(existing) {
-		if socketIsHealthy(socketPath) {
+		healthy, attempts := socketIsHealthy(socketPath)
+		if healthy {
 			return nil, fmt.Errorf("%w (pid %d)", ErrAlreadyRunning, existing)
 		}
 		// The pid is alive and is a grafel process, but its socket will not
 		// answer a Ping within the bounded retry window — the daemon is wedged
 		// (e.g. stuck in graceful shutdown behind a stalled Rebuild RPC, #5710)
 		// and can never again serve a request. Reclaim rather than refuse.
-		_ = forceKillFunc(existing)
+		//
+		// #7050: this kill is SIGKILL/TerminateProcess — the victim runs no
+		// defers and writes no log line, so from its side it simply vanishes.
+		// Until this line the kill was recorded nowhere at all: a user whose
+		// daemon disappeared had nothing to find on either side of it. The
+		// killer is the only party that can leave the trace, so it does, with
+		// the pid it killed and the probe budget that condemned it.
+		killErr := forceKillFunc(existing)
+		// #7050 review round 2 (BLOCKER 1): a non-nil killErr does NOT mean the
+		// owner is still there. The liveness check above and this kill are
+		// separated by socketIsHealthy's ~900 ms of probes plus its sleeps, and
+		// an incumbent that finishes its graceful shutdown inside that window
+		// makes ForceKill return ESRCH / os.ErrProcessDone — on every platform,
+		// since darwin and linux go through Signal(SIGKILL) too. Re-probing
+		// liveness is what separates "we could not kill it" (refuse: it is still
+		// serving) from "it beat us to it" (proceed: there is nothing left to
+		// protect). Treating both as failure refused startup in exactly #5710's
+		// own scenario — a daemon stuck in graceful shutdown — with nothing in
+		// ensureLoaded to retry it.
+		ownerStillAlive := killErr != nil && pidAlive(existing)
+		logger.Warn("pidfile reclaim: force-killed the recorded daemon owner — its socket did not answer Ping (#5710/#7050)",
+			"reclaimed_pid", existing,
+			"socket", socketPath,
+			"probe_attempts", attempts,
+			"probe_timeout", socketHealthProbeTimeout.String(),
+			"kill_err", killErr,
+			"owner_still_alive", ownerStillAlive)
+		// #7050 review (M7): a FAILED kill must not be followed by taking the
+		// pidfile. process.ForceKill is OpenProcess(PROCESS_TERMINATE) +
+		// TerminateProcess on Windows, and the open can fail with
+		// ERROR_ACCESS_DENIED against a daemon in another session or at a
+		// higher integrity level. Proceeding there wrote our pid over a pidfile
+		// whose owner is still alive and still listening: two live daemons, one
+		// pidfile, and every later reclaim/reap decision keyed off a pid that is
+		// not the one serving. Refusing is the only safe answer — the incumbent
+		// survives, and the caller gets an error naming the pid it could not
+		// clear instead of a silently divergent state.
+		if ownerStillAlive {
+			return nil, fmt.Errorf("pidfile reclaim: force-kill of unresponsive owner pid %d failed and it is still alive, refusing to take the pidfile: %w", existing, killErr)
+		}
 	}
 	pid := os.Getpid()
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
