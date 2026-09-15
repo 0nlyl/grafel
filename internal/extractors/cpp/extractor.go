@@ -152,6 +152,11 @@ func (e *CppExtractor) Extract(ctx context.Context, file extractor.FileInput) ([
 	// SCOPE.Schema/field members emitted in the structural walk.
 	records = attachCppFieldMembership(records, file.Path, lang)
 
+	// Issue #6912 (arm I) — field→declared-type REFERENCES edges, same-file
+	// targets only. Runs on the assembled record slice so every in-file type
+	// definition is visible. See field_type_refs.go for the target rules.
+	records = attachCppFieldTypeRefs(records, file.Path, lang)
+
 	// Issue #3628 — error-flow: scan throw / typed-catch sites and emit
 	// THROWS / CATCHES edges to a shared SCOPE.ExceptionType convergence node
 	// (records[0] is the file entity required by EmitExceptionEdges).
@@ -334,6 +339,7 @@ func walkStructural(n ts.Node, src []byte, path, lang, container string, out *[]
 			*out = append(*out, r)
 			// Also recurse into the template's inner class/struct so
 			// nested class members get emitted.
+			before := len(*out)
 			for i := 0; i < int(n.ChildCount()); i++ {
 				inner := n.Child(i)
 				switch inner.Type() {
@@ -350,6 +356,16 @@ func walkStructural(n ts.Node, src []byte, path, lang, container string, out *[]
 					}
 				}
 			}
+			// #6912 — a class NESTED inside a template gets real field
+			// entities (the templated class's own members do not), and those
+			// members may be typed by a TEMPLATE PARAMETER. `template<typename
+			// T> struct Outer { struct Inner { T val; }; };` beside a real
+			// `struct T` would otherwise let a field→declared-type edge bind
+			// `Inner.val` to `struct T` — two unrelated things that share a
+			// spelling. Go ships that shape as a known-wrong over-fire (#7041);
+			// here the parameter names in scope are recorded on each field so
+			// field_type_refs.go can refuse them by name.
+			stampCppTemplateParams(out, before, cppTemplateParams(n, src))
 		}
 		return
 
@@ -382,6 +398,32 @@ func walkStructural(n ts.Node, src []byte, path, lang, container string, out *[]
 	// Default: recurse into children.
 	for i := 0; i < int(n.ChildCount()); i++ {
 		walkStructural(n.Child(i), src, path, lang, container, out)
+	}
+}
+
+// stampCppTemplateParams records, on every SCOPE.Schema/field appended at or
+// after index `from`, the template parameter names that were in scope where the
+// field was declared.
+//
+// It APPENDS rather than overwrites, so a class nested two templates deep
+// carries both parameter lists: the inner template stamps its own names first,
+// then the outer template's call — whose `from` covers the inner one's output —
+// adds its names on top. Overwriting would silently drop the inner list and
+// re-open the collision for the inner parameter.
+func stampCppTemplateParams(out *[]types.EntityRecord, from int, params []string) {
+	if len(params) == 0 || out == nil {
+		return
+	}
+	for i := from; i < len(*out); i++ {
+		r := &(*out)[i]
+		if r.Kind != "SCOPE.Schema" || r.Subtype != "field" {
+			continue
+		}
+		if r.Metadata == nil {
+			r.Metadata = map[string]interface{}{}
+		}
+		existing, _ := r.Metadata["template_params"].([]string)
+		r.Metadata["template_params"] = append(append([]string{}, existing...), params...)
 	}
 }
 
@@ -847,6 +889,16 @@ func extractClassLike(n ts.Node, src []byte, path, lang, subtype string) (types.
 	// (class/struct/union) entity carries its field schema.
 	body := findClassBody(n)
 	if body != nil {
+		// #6912 — a class/struct/union specifier WITH a body DEFINES the type
+		// here; one without a body (`class Order;`, `struct Item i;`,
+		// `extern struct Foo x;`) merely names a type defined elsewhere, and
+		// extractClassLike emits a Component for both. The field→declared-type
+		// pass (field_type_refs.go) refuses non-definitions as targets so a
+		// field does not bind to a forward declaration that has the right name,
+		// the right file, an admissible Kind and an admissible Subtype — the
+		// shape that cost arm G half its edges (#7047/#7056). Metadata is not
+		// hashed by the #6118 semantic digest, so this marker moves no baseline.
+		meta["definition"] = true
 		fields, isAbstract := cppClassMembers(body, src)
 		if len(fields) > 0 {
 			meta["fields"] = fields
@@ -1232,8 +1284,53 @@ func extractConcept(tmpl, cn ts.Node, src []byte, path, lang string) (types.Enti
 	}, true
 }
 
-// cppTemplateParams returns the names of a template_declaration's parameters
-// (e.g. `template<class T, int N>` → ["T","N"]).
+// cppTemplateParams returns the names BOUND by a template_declaration's
+// parameter list (e.g. `template<class T, int N>` → ["T","N"]).
+//
+// It returns the name and nothing else. That is a stricter contract than the
+// first implementation kept, and the strictness is the point: #6912 refuses a
+// field-type candidate matching one of these names, so a name collected here in
+// error DELETES a correct edge, and a name missed lets a wrong one through. An
+// independent review found FIVE parameter forms where the old scan — "every
+// type_identifier or identifier child of four node kinds" — was wrong in one
+// direction or the other:
+//
+//	template<template<typename> class Order>   collected NOTHING (wrong kind)
+//	template<int Order = 4>                    collected NOTHING (wrong kind)
+//	template<int... Order>                     collected NOTHING (wrong kind)
+//	template<typename T = Order>               collected the DEFAULT ARGUMENT
+//	template<Cc Order> / template<Item* Order> collected the CONSTRAINT / TYPE
+//
+// The first three are the #7041 wrong-binding direction; the last two are the
+// over-refusal direction, which is worse because a missing edge is invisible
+// downstream. None of the five occurs in our corpus — a CORPUS-RELATIVE ZERO,
+// not a bound on the language, and not a reason to leave any of them wrong.
+//
+// THE RULE, uniform across every form: the parameter's name is the LAST name
+// node in a pre-order walk of the declaration, stopping at the first `=` token
+// at any depth, and skipping a NESTED template_parameter_list whole.
+//
+//	typename A                     -> [A]                 -> A
+//	class B                        -> [B]                 -> B
+//	typename C = Order             -> [C] (stop at =)     -> C
+//	int D                          -> [D]                 -> D
+//	int E = 4                      -> [E] (stop at =)     -> E
+//	Item* Order                    -> [Item, Order]       -> Order
+//	Cc Order                       -> [Cc, Order]         -> Order
+//	template<typename> class F     -> [F] (list skipped)  -> F
+//	template<typename> class G = X -> [G] (skip + stop)   -> G
+//	typename... H                  -> [H]                 -> H
+//	int... I                       -> [I]                 -> I
+//
+// Taking the LAST rather than the first is what handles a parameter whose TYPE
+// or CONSTRAINT is itself a named entity (`Item* Order`, `Cc Order`); stopping
+// at `=` is what keeps a default argument from being read as a binding; skipping
+// the nested list is what keeps a template-template parameter's own inner
+// parameters (often unnamed) out of the result.
+//
+// An unnamed parameter (`template<typename>`, legal and usual inside a
+// template-template parameter's inner list) binds nothing and contributes
+// nothing. Enumerated by TestCppTemplateParams_EnumeratesTheParameterFormSpace.
 func cppTemplateParams(tmpl ts.Node, src []byte) []string {
 	list := cppFirstChildOfType(tmpl, "template_parameter_list")
 	if list == nil {
@@ -1241,19 +1338,52 @@ func cppTemplateParams(tmpl ts.Node, src []byte) []string {
 	}
 	var out []string
 	for i := 0; i < int(list.ChildCount()); i++ {
-		ch := list.Child(i)
-		switch ch.Type() {
-		case "type_parameter_declaration", "parameter_declaration",
-			"optional_type_parameter_declaration", "variadic_type_parameter_declaration":
-			for j := 0; j < int(ch.ChildCount()); j++ {
-				cj := ch.Child(j)
-				if cj.Type() == "type_identifier" || cj.Type() == "identifier" {
-					out = append(out, nodeText(cj, src))
-				}
-			}
+		if name := cppTemplateParamName(list.Child(i), src); name != "" {
+			out = append(out, name)
 		}
 	}
 	return out
+}
+
+// cppTemplateParamName returns the single name bound by ONE template parameter
+// declaration, or "" when it binds none. See cppTemplateParams for the rule and
+// the form-by-form table.
+func cppTemplateParamName(decl ts.Node, src []byte) string {
+	switch decl.Type() {
+	case "type_parameter_declaration", "optional_type_parameter_declaration",
+		"variadic_type_parameter_declaration", "parameter_declaration",
+		"optional_parameter_declaration", "variadic_parameter_declaration",
+		"template_template_parameter_declaration":
+	default:
+		// A `<`, `>` or `,` token, or an unmodelled kind, binds nothing.
+		// Returning "" rather than guessing keeps an unknown future node kind in
+		// the UNDER-collecting direction, which costs recall on one refusal
+		// instead of deleting arbitrary correct edges.
+		return ""
+	}
+	name := ""
+	var walk func(n ts.Node) bool // false once an `=` has been seen
+	walk = func(n ts.Node) bool {
+		for i := 0; i < int(n.ChildCount()); i++ {
+			ch := n.Child(i)
+			switch ch.Type() {
+			case "=":
+				return false
+			case "template_parameter_list":
+				// A template-template parameter's OWN inner list. Its
+				// parameters are not in scope for the outer template's body.
+				continue
+			case "type_identifier", "identifier":
+				name = nodeText(ch, src)
+			}
+			if !walk(ch) {
+				return false
+			}
+		}
+		return true
+	}
+	walk(decl)
+	return name
 }
 
 // extractInclude extracts a preproc_include node and emits an IMPORTS edge
