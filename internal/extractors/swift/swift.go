@@ -68,6 +68,10 @@ func (e *Extractor) Extract(_ context.Context, file extractor.FileInput) ([]type
 	walkNode(file.TSTree.RootNode(), file, &entities)
 	// Issue #4854 — in-file base-class EXTENDS for field-membership recursion.
 	entities = attachSwiftExtends(entities)
+	// Issue #6912 arm G — field → declared-type REFERENCES, same-file targets
+	// only. Runs after the walk because the in-file declaration set (and the
+	// enum value-sets the collision scan must see) is complete only then.
+	entities = attachSwiftFieldTypeRefs(entities, file.Path)
 	// Issue #90 — language tag for resolver dynamic-pattern dispatch.
 	extractor.TagRelationshipsLanguage(entities, "swift")
 	extractor.TagEntitiesLanguage(entities, "swift")
@@ -108,6 +112,19 @@ func walkNode(node ts.Node, file extractor.FileInput, out *[]types.EntityRecord)
 		}
 		classIdx := len(*out)
 		*out = append(*out, rec)
+		// Issue #6912 arm G — mark an `extension Foo` carrier so the
+		// field→declared-type pass can refuse it as a target. tree-sitter-swift
+		// routes `extension` through class_declaration and swiftDeclSubtype has
+		// no case for the keyword, so the carrier is minted Subtype "class" and
+		// is otherwise INDISTINGUISHABLE from a real declaration. See
+		// swiftIsExtensionDecl and field_type_refs.go's header for why the
+		// marker is set here rather than by changing the subtype.
+		if swiftIsExtensionDecl(node, file.Content) {
+			if (*out)[classIdx].Metadata == nil {
+				(*out)[classIdx].Metadata = map[string]interface{}{}
+			}
+			(*out)[classIdx].Metadata[swiftExtensionCarrierMetaKey] = true
+		}
 		// Issue #4913 — Type System: for an `enum` declaration also emit a
 		// SCOPE.Enum value-set node carrying its `case` members (parity with
 		// the dart/python/ts/java enum value-sets) IN ADDITION to the
