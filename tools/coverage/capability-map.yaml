@@ -15557,6 +15557,74 @@ records:
               functions: [TestTransactional_JTARollbackOn_3863, TestTransactional_Dropwizard_3863]
           issues_implemented: ["3863"]
           verified_at: "2026-06-03"
+  lang.java.framework.dubbo:
+    capabilities:
+      DI:
+        di_binding_extraction:
+          status: partial
+          symbols:
+            - file: internal/custom/java/dubbo.go
+              functions: [extractDubboBeanMethods]
+            - file: internal/extractors/config/dubbo_xml.go
+              functions: [discoverDubboXML]
+          tests:
+            - file: internal/custom/java/dubbo_test.go
+              functions: [TestDubboReferenceAndServiceBeans]
+            - file: internal/extractors/config/dubbo_xml_test.go
+              functions: [TestDiscoverDubboSpringXML]
+          verified_at: "2026-09-14"
+      Schema:
+        procedure_extraction:
+          status: partial
+          symbols:
+            - file: internal/custom/java/dubbo.go
+              functions: [extractDubboConsumerCalls, extractDubboProviderMethods, addDubboMethodEntity]
+            - file: internal/links/dubbo_pass.go
+              functions: [runDubboPass, newDubboHit]
+          tests:
+            - file: internal/custom/java/dubbo_test.go
+              functions: [TestDubboAnnotationContracts, TestDubboServiceResolvesSamePackageInterface]
+            - file: internal/links/dubbo_pass_test.go
+              functions: [TestDubboPassContractAndMethodMatch]
+          verified_at: "2026-09-14"
+      Substrate:
+        config_consumption:
+          status: partial
+          symbols:
+            - file: internal/custom/java/dubbo.go
+              functions: [dubboConfigValue, dubboSetterAttributes, resolveJavaType]
+            - file: internal/extractors/config/dubbo_xml.go
+              functions: [discoverDubboXML]
+            - file: internal/links/dubbo_pass.go
+              functions: [newDubboHit, dubboMetadataCompatible]
+          tests:
+            - file: internal/custom/java/dubbo_test.go
+              functions: [TestDubboReferenceAndServiceBeans, TestDubboBeanPreservesWildcardImportCandidates]
+            - file: internal/extractors/config/dubbo_xml_test.go
+              functions: [TestDiscoverDubboSpringXML]
+            - file: internal/links/dubbo_pass_test.go
+              functions: [TestDubboPassLinksUniqueUnresolvedConfigAsInferred, TestDubboPassLinksMissingResolutionMarkerAsInferred, TestDubboPassSkipsConflictingResolvedMetadata, TestDubboPassSkipsUnqualifiedInterface, TestDubboPassResolvesWildcardCandidateFromKnownInterface, TestDubboPassSkipsAmbiguousWildcardCandidates, TestDubboPassSkipsAmbiguousProviders]
+          verified_at: "2026-09-14"
+      Transport:
+        transport_binding:
+          status: partial
+          symbols:
+            - file: internal/custom/java/dubbo.go
+              functions: [ExtractDubbo, extractDubboReferenceAnnotations, extractDubboServiceAnnotations, extractDubboBeanMethods, resolveJavaType]
+            - file: internal/custom/java/patterns_dispatch.go
+              functions: [detectFrameworks]
+            - file: internal/extractors/config/dubbo_xml.go
+              functions: [discoverDubboXML]
+            - file: internal/links/dubbo_pass.go
+              functions: [runDubboPass, newDubboHit, dubboMetadataCompatible]
+          tests:
+            - file: internal/custom/java/dubbo_test.go
+              functions: [TestDubboAnnotationContracts, TestDubboLegacyAnnotationsRequireDubboImports, TestDubboReferenceAndServiceBeans, TestDubboServiceResolvesSamePackageInterface, TestDubboBeanPreservesWildcardImportCandidates, TestDubboRegisteredDispatcher]
+            - file: internal/extractors/config/dubbo_xml_test.go
+              functions: [TestDiscoverDubboSpringXML]
+            - file: internal/links/dubbo_pass_test.go
+              functions: [TestDubboPassContractAndMethodMatch, TestDubboPassLinksUniqueUnresolvedConfigAsInferred, TestDubboPassLinksMissingResolutionMarkerAsInferred, TestDubboPassSkipsConflictingResolvedMetadata, TestDubboPassSkipsUnqualifiedInterface, TestDubboPassResolvesWildcardCandidateFromKnownInterface, TestDubboPassSkipsAmbiguousWildcardCandidates, TestDubboPassSkipsAmbiguousProviders]
+          verified_at: "2026-09-14"
   lang.java.framework.grpc:
     capabilities:
       Auth:

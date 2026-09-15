@@ -20,6 +20,7 @@ import EventFlowsScreen from "./event-flows";
 import TopologyScreen from "./topology";
 import PathsScreen from "./paths";
 import LinksScreen from "./links";
+import DubboScreen from "./dubbo";
 import GraphQLScreen from "./graphql";
 import IaCScreen from "./iac";
 import DocsScreen from "./docs";
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
           { path: "topology", element: <TopologyScreen />, handle: { surfaceLabel: "Topology" } },
           { path: "paths", element: <PathsScreen />, handle: { surfaceLabel: "Paths" } },
           { path: "links", element: <LinksScreen />, handle: { surfaceLabel: "Links" } },
+          { path: "dubbo", element: <DubboScreen />, handle: { surfaceLabel: "Dubbo" } },
           { path: "graphql", element: <GraphQLScreen />, handle: { surfaceLabel: "GraphQL" } },
           { path: "iac", element: <IaCScreen />, handle: { surfaceLabel: "Infrastructure" } },
           { path: "docs", element: <DocsScreen />, handle: { surfaceLabel: "Docs" } },

@@ -59,6 +59,12 @@
       "skipped": 0
     },
     {
+      "pass": "dubbo",
+      "links_added": 0,
+      "candidates": 0,
+      "skipped": 0
+    },
+    {
       "pass": "topic",
       "links_added": 0,
       "candidates": 0,

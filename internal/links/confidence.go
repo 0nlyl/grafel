@@ -31,7 +31,8 @@ package links
 
 const (
 	// ImportConfidence is the fixed score for every P1 link.
-	ImportConfidence = 1.0
+	ImportConfidence        = 1.0
+	DubboInferredConfidence = 0.85
 
 	// labelBandLow / labelBandHigh bracket the P2 medium band.
 	labelBandLow  = 0.6
@@ -77,6 +78,15 @@ func ScoreSameAs(overlap, minOverlap float64) float64 {
 
 // ScoreImport returns the confidence for a P1 (import/calls) link.
 func ScoreImport() float64 { return ImportConfidence }
+
+// ScoreDubbo returns full confidence for an exact Dubbo contract match and a
+// lower inferred score when optional metadata is unresolved or omitted.
+func ScoreDubbo(exact bool) float64 {
+	if exact {
+		return ImportConfidence
+	}
+	return DubboInferredConfidence
+}
 
 // ScoreLabel maps a raw `idf * kindCompat` product to the P2 band.
 //

@@ -268,12 +268,23 @@ func Discover(ctx context.Context, repoRoot string, files []string) ([]types.Ent
 
 	for _, rel := range files {
 		spec, ok := classify(rel)
+		abs := filepath.Join(repoRoot, rel)
+		var content []byte
+		if !ok && strings.EqualFold(filepath.Ext(rel), ".xml") {
+			content, _ = readBounded(abs)
+			if isDubboSpringXML(content) {
+				spec = configSpec{"dubbo_spring_xml", formatXML}
+				ok = true
+			}
+		}
 		if !ok {
 			continue
 		}
 
-		abs := filepath.Join(repoRoot, rel)
-		content, err := readBounded(abs)
+		var err error
+		if content == nil {
+			content, err = readBounded(abs)
+		}
 		if err != nil {
 			// Best-effort: emit the entity even when read fails, but with
 			// empty body. Skipping silently would lose graph signal for
@@ -297,6 +308,10 @@ func Discover(ctx context.Context, repoRoot string, files []string) ([]types.Ent
 		cbEnts, cbRels := discoverChannelBindings(repoRoot, rel, spec, content)
 		entities = append(entities, cbEnts...)
 		rels = append(rels, cbRels...)
+
+		dubboEnts, dubboRels := discoverDubboXML(repoRoot, rel, spec, content, ent.ID)
+		entities = append(entities, dubboEnts...)
+		rels = append(rels, dubboRels...)
 
 		// Emit a DEPENDS_ON_CONFIG edge from the file's containing
 		// directory (treated as a Module structural reference) to the

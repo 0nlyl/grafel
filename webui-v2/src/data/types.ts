@@ -2415,6 +2415,74 @@ export interface GroupLinksReply {
   links: CrossRepoLink[];
 }
 
+export interface DubboEndpoint {
+  id: string;
+  repo: string;
+  name?: string;
+  qualified_name?: string;
+  file?: string;
+  line?: number;
+  module_path?: string;
+}
+
+export interface DubboMethod {
+  name: string;
+  arity?: number;
+  has_arity?: boolean;
+  link_count: number;
+}
+
+export interface DubboService {
+  interface: string;
+  simple_name: string;
+  group?: string;
+  version?: string;
+  protocol?: string;
+  consumers: DubboEndpoint[];
+  providers: DubboEndpoint[];
+  methods?: DubboMethod[];
+  link_count: number;
+  confidence?: number;
+  match?: string;
+}
+
+export interface DubboSummary {
+  services: number;
+  consumers: number;
+  providers: number;
+  repos: number;
+  links: number;
+}
+
+export interface DubboFacets {
+  consumer_repos: string[];
+  provider_repos: string[];
+  groups: string[];
+  versions: string[];
+  protocols: string[];
+}
+
+export interface DubboReport {
+  summary: DubboSummary;
+  facets: DubboFacets;
+  services: DubboService[];
+  page: number;
+  page_size: number;
+  total_services: number;
+  total_pages: number;
+}
+
+export interface DubboFilters {
+  q?: string;
+  consumer_repo?: string;
+  provider_repo?: string;
+  dubbo_group?: string;
+  version?: string;
+  protocol?: string;
+  page?: number;
+  page_size?: number;
+}
+
 // ---------------------------------------------------------------------------
 // GraphQL resolver-effects surface (#4255, epic #4249)
 //

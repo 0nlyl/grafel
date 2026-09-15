@@ -1,7 +1,7 @@
 <!-- DO NOT EDIT — generated from docs/coverage/registry.json by 'go run ./tools/coverage gen' -->
 # grafel capabilities
 
-**Languages**: 39 (38 active · 1 placeholder) · **Frameworks**: 263 · **ORMs**: 186 · **Tools**: 161 · **Other**: 212
+**Languages**: 39 (38 active · 1 placeholder) · **Frameworks**: 264 · **ORMs**: 186 · **Tools**: 161 · **Other**: 212
 
 ## Coverage by language
 
@@ -10,7 +10,7 @@
 | [JS/TS](by-language/jsts.md) | 33 | 22 | 20 | 10 |
 | [C/C++](by-language/c-cpp.md) | 25 | 16 | 10 | 4 |
 | [python](by-language/python.md) | 25 | 15 | 18 | 10 |
-| [java](by-language/java.md) | 23 | 10 | 15 | 4 |
+| [java](by-language/java.md) | 24 | 10 | 15 | 4 |
 | [go](by-language/go.md) | 21 | 8 | 17 | 5 |
 | [C#](by-language/csharp.md) | 18 | 7 | 16 | 9 |
 | [kotlin](by-language/kotlin.md) | 18 | 0 | 7 | 1 |
@@ -83,4 +83,4 @@ The [Platform / k8s](by-category/platform.md) category splits into the lanes bel
 |---|
 | [Bicep](by-language/bicep.md) |
 
-Total: 263 frameworks · 161 tools · 186 ORMs · 212 other
+Total: 264 frameworks · 161 tools · 186 ORMs · 212 other

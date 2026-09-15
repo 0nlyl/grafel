@@ -69,6 +69,7 @@ var allPatternExtractors = []patternFn{
 	ExtractBeanValidation,
 	ExtractCDIInterceptors,
 	ExtractDropwizard,
+	ExtractDubbo,
 	ExtractGuiceDI,
 	ExtractGWT,
 	ExtractGWTDataFetching,
@@ -122,6 +123,10 @@ type frameworkMarker struct {
 }
 
 var frameworkMarkers = []frameworkMarker{
+	// Apache Dubbo and legacy Alibaba Dubbo.
+	{"dubbo", "org.apache.dubbo"},
+	{"dubbo", "com.alibaba.dubbo"},
+
 	// Spring family.
 	{"spring_boot", "org.springframework"},
 	{"spring_boot", "@SpringBootApplication"},

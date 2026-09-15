@@ -27,6 +27,7 @@ import {
   Wrench,
   Inbox,
   Settings,
+  Cable,
 } from "lucide-react";
 
 export interface ScreenDef {
@@ -43,6 +44,7 @@ export const SCREENS: ScreenDef[] = [
   { to: "topology", label: "Topology", Icon: Radio, shortcut: "T" },
   { to: "paths", label: "Paths", Icon: RouteIcon, shortcut: "P" },
   { to: "links", label: "Links", Icon: Link2, shortcut: "L" },
+  { to: "dubbo", label: "Dubbo", Icon: Cable, shortcut: "B" },
   { to: "graphql", label: "GraphQL", Icon: Boxes, shortcut: "R" },
   { to: "iac", label: "Infrastructure", Icon: Server, shortcut: "I" },
   { to: "flows", label: "Flows", Icon: Workflow, shortcut: "F" },

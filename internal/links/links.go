@@ -445,6 +445,14 @@ func RunAllPasses(group, graphsDir, grafelHome string) (*RunResult, error) {
 	}
 	res.Results = append(res.Results, p6)
 
+	// Cross-repo Apache Dubbo consumer → provider contract linker.
+	SetPhase(PhaseForPass("dubbo"))
+	pDubbo, err := runDubboPass(graphs, paths, rejects)
+	if err != nil {
+		return nil, fmt.Errorf("dubbo pass: %w", err)
+	}
+	res.Results = append(res.Results, pDubbo)
+
 	// P7 — cross-repo message-topic publisher↔subscriber linker. Uses
 	// SCOPE.MessageTopic entities emitted by the Kafka/SNS/SQS/EventBridge
 	// passes as the join key, matched by canonical topic Name.
@@ -698,10 +706,11 @@ type repoGraph struct {
 }
 
 type entityNode struct {
-	ID      string // local entity id
-	Name    string // raw name
-	Kind    string // class/function/...
-	Subtype string // package/function/...; required to discriminate
+	ID            string // local entity id
+	Name          string // raw name
+	QualifiedName string // fully qualified symbol name when available
+	Kind          string // class/function/...
+	Subtype       string // package/function/...; required to discriminate
 	// real external packages (subtype=package) from bare-name built-in
 	// placeholders (subtype=function). See issue #566 / import_pass.go.
 	SourceFile string // relative path
@@ -728,14 +737,15 @@ type edgeRef struct {
 // RSS (#5954).
 func newEntityNode(e graph.Entity) entityNode {
 	return entityNode{
-		ID:         e.ID,
-		Name:       e.Name,
-		Kind:       e.Kind,
-		Subtype:    e.Subtype,
-		SourceFile: e.SourceFile,
-		StartLine:  e.StartLine,
-		EndLine:    e.EndLine,
-		Properties: e.PropsClone(),
+		ID:            e.ID,
+		Name:          e.Name,
+		QualifiedName: e.QualifiedName,
+		Kind:          e.Kind,
+		Subtype:       e.Subtype,
+		SourceFile:    e.SourceFile,
+		StartLine:     e.StartLine,
+		EndLine:       e.EndLine,
+		Properties:    e.PropsClone(),
 	}
 }
 
