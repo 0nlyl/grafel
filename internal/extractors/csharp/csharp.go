@@ -964,29 +964,170 @@ func collectLocalVarTypes(body ts.Node, src []byte) map[string]string {
 		}
 	}
 	// `foreach (T x in xs)` — bind loop variable.
-	for _, fr := range findAllNodes(body, "for_each_statement") {
+	//
+	// #7068: this loop used to match `for_each_statement`, a node type
+	// tree-sitter-c-sharp does not have (the grammar spells it
+	// `foreach_statement`), and the literal was UNPAIRED — no arm anywhere
+	// matched the real name — so the whole loop had NEVER EXECUTED. Code that
+	// has never run is not known to be correct, and an audit of the body
+	// against real CST dumps found three separate defects beyond the label.
+	//
+	//   1. FABRICATED PSEUDO-TYPES. `implicit_type` reaches leafTypeName's
+	//      last-resort branch, which returns the raw text "var" because `var`
+	//      IS a well-formed C# identifier. Correcting the label alone would
+	//      have emitted `var.Process` — a fabricated DOTTED receiver, which is
+	//      worse than the honest bare name it replaces because a dotted target
+	//      escapes the resolver's bare-name class entirely (#7056).
+	//      `dynamic` is the same category wearing a different node: it is a
+	//      contextual keyword meaning "no static type", but the grammar spells
+	//      it `identifier`, so leafTypeName returns "dynamic" and the arm would
+	//      emit `dynamic.Process`. csNonBindableTypeKeyword refuses BOTH.
+	//
+	//      UNVERIFIED, and repeated here because this is where the decision
+	//      reads as settled: the two tokens may not be symmetric. A user type
+	//      named `var` is prohibited by the language; one named `dynamic` is
+	//      believed to be PERMITTED, and if so, `class dynamic {}` beside
+	//      `foreach (dynamic d in xs)` is a legal program whose correct edge the
+	//      guard silently drops. NO C# COMPILER EXISTS IN THIS ENVIRONMENT, so
+	//      neither the reviewer who raised it nor the author could demonstrate
+	//      the rule. See csNonBindableTypeKeyword for what settles it.
+	//
+	//      A `foreach`'s `right` field is the COLLECTION, not the element, so
+	//      inferImplicitLocalType's RHS trick cannot be reused here — it would
+	//      need the collection's generic argument. `foreach (var o in …)`
+	//      therefore stays untyped and its calls keep their bare leaf. That is
+	//      a known limit, not a bug, and it is where the recall actually is:
+	//      96.6% of the `foreach` statements in the measured corpus are `var`.
+	//
+	//      STILL FABRICATED, pinned as known-wrong rather than fixed: an open
+	//      GENERIC TYPE PARAMETER. `foreach (T o in xs)` inside `class C<T>`
+	//      parses as `identifier` and emits `T.Process`. Refusing it needs
+	//      type-parameter SCOPE, which this extractor does not have anywhere —
+	//      classCtx carries only `fields`, and the neighbouring #6912 field-type
+	//      pass records the identical hole as its own known limitation with its
+	//      own pinned over-fire tests (field_type_refs.go, "an open type
+	//      parameter `T` is dropped only because nothing in the file happens to
+	//      be named `T`"). Building that scope is a separate arm; a name
+	//      blocklist guessing at `T`/`TKey` would be worse than the honest gap.
+	//      TestCSharp_Foreach7068_TypeParameterIsFabricated_KnownWrong pins it,
+	//      and a fix is EXPECTED to break that test.
+	//
+	//   2. A WRONG NAME FALLBACK. The arm fell back to "first identifier child"
+	//      when the `left` field was not an identifier. The only form that
+	//      reaches it is `foreach (var (a, b) in pairs)` — `type` is present
+	//      (`implicit_type`, so the empty-type guard does not fire) and `left`
+	//      is a `tuple_pattern`. The fallback then scanned direct children and
+	//      found `pairs`, the COLLECTION, binding it to "var" so a later
+	//      `pairs.Clear()` emitted `var.Clear`. There are 7 such statements in
+	//      the measured corpus. It is deleted: the keyword guard above now
+	//      refuses that input before a name is looked at, and no OTHER form is
+	//      known that reaches the fallback. Note the precise claim — it is NOT
+	//      "every form with a `type` field has an identifier `left`", which the
+	//      `var (a, b)` case above disproves; it is that every form REACHING
+	//      this point does, over the enumerated space in
+	//      foreach_localvar_7068_test.go. That space is not proven exhaustive.
+	//
+	//   3. TAKING A NAME SOMETHING ELSE HAD ALREADY BOUND. This pass runs
+	//      AFTER the local_declaration_statement pass over the same `out` map,
+	//      so a plain `out[name] = typ` let a `foreach` binding CLOBBER a
+	//      local's — regardless of source order, because the two passes are
+	//      separate walks. A `foreach` variable's scope is its own statement,
+	//      so a sibling block may reuse the name, and clobbering turned a
+	//      previously-CORRECT `Order.Ship` into `Line.Ship`. That would have
+	//      been a regression minted by this change.
+	//
+	//      The FIRST fix for this consulted `out` — "skip a name the locals
+	//      pass already bound" — and the invariant claimed for it ("no receiver
+	//      that resolved correctly without this arm can change") was FALSE, for
+	//      a reason worth recording: `local_declaration_statement` is the only
+	//      binding form this extractor collects, so consulting `out` asks
+	//      "did WE type this name?", not "is this name taken?". A name bound by
+	//      a `using`, a `catch`, a lambda parameter, a local-function parameter
+	//      or an `out` declaration is absent from `out` entirely, so the
+	//      `foreach` pass took the key unopposed and converted a BARE leaf —
+	//      which the resolver's same-file tier often launders to the RIGHT
+	//      target (#7071) — into a WRONG dotted one. Measured end to end:
+	//      `using (Conn c = Open()) { c.Close(); }` beside `foreach (Order c
+	//      in orders)` emitted `Order.Close`, on an `Order` that has no
+	//      `Close`, where the arm-off tree emitted the correct `Conn.Close`.
+	//
+	//      So the guard now asks the right question, of the SOURCE rather than
+	//      of our own map: csNamesBoundOutsideForeach collects every name bound
+	//      by any declaration construct in the body and the `foreach` pass
+	//      refuses those names outright. That check SUBSUMES the old `out`
+	//      lookup (a local declaration is a `variable_declarator`, which the
+	//      ledger collects), so the `out` lookup is gone rather than left in
+	//      front of it — a redundant guard fires only where the real one
+	//      already fires and leaves both ungraded.
+	//
+	//      WHAT IS AND IS NOT GUARANTEED. `out` is a superset of what it held
+	//      before, agreeing on every shared key, and a `foreach` name that
+	//      collides with any binding form in csNamesBoundOutsideForeach's list
+	//      is refused. That list is an ENUMERATION, so the guarantee is only as
+	//      wide as the list: a binding construct not on it would still be taken
+	//      unopposed. "0 changed-target rows" is therefore a CORPUS
+	//      OBSERVATION, not a structural proof — it was stated as the latter in
+	//      an earlier revision of this comment and that was wrong.
+	//      The flat map also still cannot model block scope, so a
+	//      same-name/different-type collision degrades to a bare leaf rather
+	//      than to a wrong dotted target.
+	//
+	// Forms that DO bind — the enumerated space, NOT proven exhaustive:
+	// identifier (`Order o`), predefined_type (`string s`), generic_name
+	// (`List<Order> g`), array_type (`Order[] a`), nullable_type (`Order? o`),
+	// qualified_name (`Ns.Order o`) and alias_qualified_name — the last only in
+	// its SINGLE-segment form (`global::Order o`), since `global::A.B.Foo`
+	// parses as a qualified_name whose qualifier merely contains the alias.
+	// Plus `await foreach`, which is the same node. findAllNodes is a full
+	// descendant walk, so nested loops bind.
+	//
+	// pointer_type (`Node* p`) is a deliberate half-entry. It shares
+	// leafTypeName's `array_type, pointer_type` case and WOULD enter the map —
+	// stated in the conditional because no valid C# lets a test observe it, and
+	// an unobservable claim is unfalsifiable rather than verified. What IS
+	// observed is that no compilable C# turns it into a dotted CALLS target: a
+	// pointer has no
+	// members, so `p.Touch()` does not compile, and the `p->Touch()` that does
+	// is not a `member_access_expression` and never reaches receiver typing.
+	// Listing it as a binding form would assert something no valid program can
+	// observe; the observed bare result is pinned instead.
+	//
+	// Forms that bind NOTHING, each pinned by a test: an explicitly typed
+	// deconstruction `foreach ((Order a, Order b) in xs)` (no `type` field at
+	// all), `foreach (var o in xs)`, `foreach (dynamic d in xs)` and
+	// `foreach (var (a, b) in xs)` (keyword guard), and `foreach (ref Order o in
+	// span)` / `ref readonly` — `ref_type` has no leafTypeName case, so its raw
+	// text "ref Order" fails the identifier allow-list and yields "". The ref
+	// form is an unfixed gap, not a decision; it is out of scope here.
+	feTypes := map[string]string{}
+	feAmbiguous := map[string]bool{}
+	for _, fr := range findAllNodes(body, "foreach_statement") {
 		typ := leafTypeName(fr.ChildByFieldName("type"), src)
-		if typ == "" {
+		// An empty `typ` means "we could not determine a type". Such a
+		// statement must not reach the ledger below at all: writing "" would
+		// both poison the ambiguity check against a later real binding of the
+		// same name and, before the two-stage rewrite, have overwritten a
+		// correct local binding with a value receiverTypeName reads as absent.
+		if typ == "" || csNonBindableTypeKeyword(typ) {
 			continue
 		}
-		name := ""
-		// tree-sitter-c-sharp uses the field "left" or a direct identifier.
-		if l := fr.ChildByFieldName("left"); l != nil && l.Type() == "identifier" {
-			name = string(src[l.StartByte():l.EndByte()])
+		l := fr.ChildByFieldName("left")
+		if l == nil || l.Type() != "identifier" {
+			continue
 		}
-		if name == "" {
-			// Fallback: first identifier child after the type.
-			for j := 0; j < int(fr.ChildCount()); j++ {
-				ch := fr.Child(j)
-				if ch != nil && ch.Type() == "identifier" {
-					name = string(src[ch.StartByte():ch.EndByte()])
-					break
-				}
-			}
+		name := string(src[l.StartByte():l.EndByte()])
+		if prev, seen := feTypes[name]; seen && prev != typ {
+			feAmbiguous[name] = true
+			continue
 		}
-		if name != "" {
-			out[name] = typ
+		feTypes[name] = typ
+	}
+	claimed := csNamesBoundOutsideForeach(body, src)
+	for name, typ := range feTypes {
+		if feAmbiguous[name] || claimed[name] {
+			continue
 		}
+		out[name] = typ
 	}
 	return out
 }
@@ -998,6 +1139,214 @@ func collectLocalVarTypes(body ts.Node, src []byte) map[string]string {
 // type" and fall back to RHS inference (#4685).
 func isImplicitVarType(declType string) bool {
 	return declType == "var"
+}
+
+// csNonBindableTypeKeyword reports whether a declared-type leaf is a C# keyword
+// that occupies a type position without NAMING a type, so binding a receiver to
+// it would fabricate a dotted target (#7068).
+//
+// Two tokens qualify, and they reach here through DIFFERENT node types, which
+// is why one string check covers both and neither is redundant:
+//
+//	var      → implicit_type, whose raw text leafTypeName returns verbatim
+//	dynamic  → identifier, which leafTypeName returns by its first case
+//
+// Both mean "no static type is known here". Emitting `var.Process` or
+// `dynamic.Process` is strictly worse than the bare `Process` that not binding
+// produces, because a dotted target leaves the resolver's bare-name class and
+// is scored as a confident bind (#7071).
+//
+// This is deliberately an exact-token list, not a heuristic. It does NOT catch
+// an open generic type parameter (`foreach (T o in xs)`) — see the type
+// parameter note in collectLocalVarTypes; that needs scope, not a word list.
+//
+// UNVERIFIED, recorded rather than asserted: the two tokens may not be
+// symmetric on the over-refusal axis. A user type named `var` is prohibited by
+// the language, but a user type named `dynamic` is believed to be PERMITTED and
+// to shadow the keyword in type position — if that is so, `class dynamic {}`
+// beside `foreach (dynamic d in xs)` is a legal program whose correct edge this
+// guard silently drops. NO C# COMPILER EXISTS IN THIS ENVIRONMENT, so neither
+// the reviewer who raised it nor the author could demonstrate the rule either
+// way, and asserting a language rule nobody ran is the exact defect class this
+// change was opened to fix. What settles it: compile `class dynamic {}` with
+// `csc`. Until then the direction is the conservative one — the guard drops an
+// edge rather than fabricating a dotted target — and its blast radius is this
+// arm only.
+//
+// SCOPE: this predicate is used by the `foreach` arm ONLY. The
+// local_declaration_statement path above keeps isImplicitVarType, so
+// `dynamic d = x; d.P();` still fabricates `dynamic.P` exactly as it does on
+// main. Widening the locals path is a behaviour change to code that has always
+// run and belongs to its own graded change, not to this node-type fix.
+func csNonBindableTypeKeyword(declType string) bool {
+	return declType == "var" || declType == "dynamic"
+}
+
+// csNamesBoundOutsideForeach returns every identifier bound by a declaration
+// construct inside body, EXCLUDING `foreach` loop variables themselves.
+//
+// It exists because `collectLocalVarTypes`' `foreach` arm must not take a name
+// something else has already bound, and "already bound" cannot be answered from
+// the `out` map: `local_declaration_statement` is the only binding form this
+// extractor collects, so `out` answers "did we TYPE this name?" — a strictly
+// narrower question than "is this name TAKEN?". A `using`, a `catch`, a lambda
+// parameter, a local-function parameter or an `out` declaration binds a name
+// that never reaches `out` at all. Consulting `out` therefore let the `foreach`
+// pass retarget a receiver from a bare leaf (which the resolver's same-file tier
+// often launders to the RIGHT target, #7071) to a WRONG dotted one.
+//
+// A `var` local whose initialiser defeats inferImplicitLocalType is the same
+// hazard from the other direction: the name IS a local declaration but never
+// enters `out`, so the ledger must record names REGARDLESS of whether a type
+// was derived for them. That is why this walks the source rather than reading
+// `out`.
+//
+// Every node type below was confirmed by CST dump against the grammar these
+// tests parse with; each carries the bound name in its `name` field except
+// `implicit_parameter`, whose own text is the name:
+//
+//	variable_declarator    local decl, `using (T c = …)`, `using T c = …`,
+//	                       `for (int c = …)`, `fixed (…)`
+//	catch_declaration      `catch (Boom c)`
+//	parameter              lambda `(T c) => …`, local function `void F(T c)`,
+//	                       and ordinary method parameters
+//	implicit_parameter     lambda `c => …`
+//	declaration_expression `out var c`, `out T c`
+//	declaration_pattern    `x is T c`, `case T c:`
+//	from_clause/let_clause/join_clause   LINQ range variables
+//	join_into_clause       `join … into c`
+//	(positional)           `group … into c` / `select … into c`, which have NO
+//	                       node of their own — see the scan at the end
+//
+// THE GUARANTEE IS AS WIDE AS THIS LIST AND NO WIDER. It is an enumeration, not
+// a derivation from the grammar, so a binding construct missing from it would
+// still be taken unopposed by the `foreach` arm. That is not hypothetical: the
+// LINQ `into` continuation variable WAS missing from the first version of this
+// list and produced the fabricated `Order.Count` on a corpus-shaped query, in
+// the same shape as the `using` case one level up. The list should be read as
+// "everything found so far", not as a closed set.
+//
+// GRADED IN BOTH DIRECTIONS, which are different questions:
+//
+//	REFUSAL (a colliding name must be refused) — graded for
+//	variable_declarator (typed and untyped), catch_declaration, from_clause,
+//	let_clause, join_clause, join_into_clause and the positional `into` scan.
+//
+//	FOUR ENTRIES ARE COVERED BUT UNGRADED IN THE REFUSAL DIRECTION, and they
+//	are named rather than left to be discovered: `parameter` (lambda and
+//	local-function parameters), `implicit_parameter`, `declaration_expression`
+//	(`out var c`) and `declaration_pattern` (`x is T c`). Mutants deleting any
+//	of them survive the suite. The reason is not laziness: a refusal fixture
+//	needs a same-name collision, `out` declarations and `is` patterns are
+//	scoped to the ENCLOSING BLOCK (so colliding with a nested `foreach` is very
+//	likely CS0136 and no such program exists), and whether a lambda or
+//	local-function parameter may reuse a sibling `foreach` variable's name is a
+//	shadowing rule that CANNOT BE CHECKED WITHOUT A C# COMPILER — and none
+//	exists in this environment. Writing those rows on an unchecked premise is
+//	the defect class this change exists to fix; a named gap costs less.
+//
+//	OVER-REFUSAL (a NON-colliding name must be left alone) — covered in
+//	AGGREGATE by the CONTROL row of essentially every test in
+//	foreach_localvar_7068_test.go, and per-binding-form by
+//	TestCSharp_Foreach7068_NonCollidingBindingIsKept.
+//
+//	BE PRECISE ABOUT WHAT THAT TABLE ADDED, because an earlier revision of this
+//	comment was not. It claimed the over-refusal direction had been "graded by
+//	nothing" before it existed. That is FALSE and scoring says so: a mutant
+//	refusing every `foreach` name unconditionally, and one claiming every
+//	identifier in the body, were BOTH already DEAD against the previous
+//	revision's tests — 21 failing lines across 11 distinct tests, killed by
+//	their CONTROL rows. Those controls are `t.Fatalf`, so the subtests abort
+//	before any refusal assertion runs; even the narrow reading ("they passed
+//	every refusal row") is not observed. What the table adds is per-form
+//	resolution: which binding form over-refuses, rather than that something
+//	does.
+//
+//	AND IT DOES NOT GRADE ANY INDIVIDUAL ENTRY. Its rows hold constant that the
+//	bound name differs from the loop variable, and the loop variable is bound
+//	ONLY by the `foreach_statement` — which is deliberately not on this list —
+//	so no widening of any entry here can put that name in the ledger. Adding
+//	`foreach_statement` to the list, the textbook over-refusal, is DEAD but
+//	PASSES that table. Read it as grading the aggregate direction with
+//	per-form diagnostics, not as a per-entry gate.
+//
+//	Over-refusal is in any case the safe direction — it drops a receiver type
+//	rather than fabricating one — and since this arm never ran before #7068 it
+//	can only add. The reason to keep watching it is that this ledger is a list
+//	that has grown under review twice, and a growing list eventually swallows
+//	names it was never meant to touch.
+//
+// `foreach_statement` is deliberately absent: its own loop variables are the
+// names being offered, and collecting them would make every `foreach` refuse
+// itself. Collisions between two `foreach` loops are handled by the ambiguity
+// ledger in collectLocalVarTypes instead.
+func csNamesBoundOutsideForeach(body ts.Node, src []byte) map[string]bool {
+	if body == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	named := findAllNodes(body,
+		"variable_declarator",
+		"catch_declaration",
+		"parameter",
+		"declaration_expression",
+		"declaration_pattern",
+		"from_clause",
+		"let_clause",
+		"join_clause",
+		"join_into_clause",
+	)
+	for _, n := range named {
+		if nm := n.ChildByFieldName("name"); nm != nil {
+			if t := string(src[nm.StartByte():nm.EndByte()]); t != "" {
+				out[t] = true
+			}
+			continue
+		}
+		// variable_declarator exposes `name`, but fall back to the first
+		// identifier child for any shape that does not.
+		for i := 0; i < int(n.ChildCount()); i++ {
+			c := n.Child(i)
+			if c != nil && c.Type() == "identifier" {
+				out[string(src[c.StartByte():c.EndByte()])] = true
+				break
+			}
+		}
+	}
+	// A lambda's implicit parameter carries no `name` field; the node IS the
+	// identifier.
+	for _, n := range findAllNodes(body, "implicit_parameter") {
+		if t := string(src[n.StartByte():n.EndByte()]); t != "" {
+			out[t] = true
+		}
+	}
+	// The LINQ CONTINUATION variable of `group … into c` and `select … into c`
+	// has NO node of its own: the grammar emits the anonymous `into` token and a
+	// bare `identifier` as DIRECT CHILDREN of the query_expression, so there is
+	// nothing for findAllNodes to match and the loop above cannot see it. It is
+	// found positionally instead — the identifier following the `into` token.
+	//
+	// `join … into c` is the sibling case and is NOT handled here: it wraps the
+	// pair in a `join_into_clause`, which the list above collects. Both were
+	// missed by the first version of this ledger, and the `join` one was missed
+	// in a way worth recording: `join_clause` was already on the list and has no
+	// `name` field, so the first-identifier fallback returned the join RANGE
+	// variable and stopped — correct as far as it went, which is exactly what
+	// made the missing continuation variable invisible.
+	for _, q := range findAllNodes(body, "query_expression") {
+		for i := 0; i < int(q.ChildCount())-1; i++ {
+			c := q.Child(i)
+			if c == nil || c.Type() != "into" {
+				continue
+			}
+			if nx := q.Child(i + 1); nx != nil && nx.Type() == "identifier" {
+				if t := string(src[nx.StartByte():nx.EndByte()]); t != "" {
+					out[t] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 // inferImplicitLocalType returns the leaf class name a `var` local is bound to
