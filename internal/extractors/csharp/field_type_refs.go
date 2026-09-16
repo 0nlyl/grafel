@@ -55,26 +55,43 @@ import (
 // redundant primitive blocklist in front of it would fire only where this check
 // already fires, leaving both ungraded.
 //
-// WHAT THE CHECK IS NOT. It is FILE scope and nothing else: it consults neither
-// the C# namespace nor type-parameter scope, so it over-fires twice, and both
-// over-fires produce an edge that BINDS — which makes them worse than a
-// dangling edge, because `bug-extractor` never sees a bound edge and no
-// disposition figure will surface them.
+// WHAT THE CHECK IS NOT. It is FILE scope PLUS type-parameter scope, and
+// nothing else: it does not consult the C# NAMESPACE, so it still over-fires
+// once, and that over-fire produces an edge that BINDS — which makes it worse
+// than a dangling edge, because `bug-extractor` never sees a bound edge and no
+// disposition figure will surface it.
 //
 //	namespace A { class Customer … }
 //	namespace B { class Order { Customer Buyer … } }   ← one file: WRONG edge
-//	class Box<Customer> { Customer Item … }            ← beside a same-file
-//	                                                     class Customer: WRONG
 //
-// So an open type parameter `T` is dropped only because nothing in the file
-// happens to be named `T`, NOT because the guard understands type parameters.
 // Measured incidence is zero — aspnetcore-mvc has 12 .cs files declaring two or
 // more namespaces and emits no field-type edge inside any of them, and
 // aspnetcore-realworld and WakeOnLAN have no multi-namespace file at all — which
-// is why this arm records the limitation instead of fixing it. Both cases are
-// PINNED as known-wrong behaviour by the two
-// TestCsharpFieldTypeRefs_KnownOverFire_* cases, which a fix is expected to
-// break.
+// is why this arm records the limitation instead of fixing it. It is PINNED as
+// known-wrong behaviour by
+// TestCsharpFieldTypeRefs_KnownOverFire_NamespaceScopeIsNotConsulted, which a
+// fix is expected to break.
+//
+// IT DOES UNDERSTAND TYPE PARAMETERS AS A SHADOWING SCOPE (#7041). This is the
+// second over-fire this header used to record, and it is CLOSED, not pinned:
+// `class Box<Customer> { Customer Item … }` beside a same-file `class Customer`
+// used to emit an edge asserting `Item`'s declared type was that class. It is
+// not — `Customer` there is the type parameter, which shadows the declaration
+// inside `Box`. The refusal lives in csVisibleTypeParameterNames; see it for
+// C#'s scoping rule, why that rule is NOT kotlin's, java's or rust's, the
+// grammar evidence behind it, and — since no C# compiler exists on the machine
+// this was written on — which rows are UNVERIFIED and what would settle them.
+// There are FOUR such rows — Sn4, G13, G9 and G8 — all named there, with G9
+// flagged as SHARING G13's premise rather than independently confirming it, and
+// two further rows (G5, G9's previous spelling) recorded there as found ILLEGAL
+// and fixed. Two earlier revisions of this sentence were wrong in turn: one
+// promised "exactly which rows" while the block below named Sn4 alone, and the
+// next claimed "exactly two" when re-derivation found four unverified and two
+// illegal. Both corrections are on the record rather than folded in silently.
+// The known-wrong pin
+// (TestCsharpFieldTypeRefs_KnownOverFire_TypeParameterShadowsSameFileType, a
+// hard `t.Fatalf` asserting the wrong edge WAS present) was deleted with the fix
+// and replaced by field_type_refs_7041_test.go.
 //
 // THE COST OF THAT RULE, stated plainly: a field whose type is declared in
 // ANOTHER file gets no edge, which on a one-type-per-file C# codebase is most
@@ -113,7 +130,17 @@ const csFieldTargetRefKind = "field_target_type"
 // would bind the edge to the wrong entity. A same-file type is written bare in
 // practice, so the recall this costs is small and the false edge it prevents is
 // silent. Pinned by TestCsharpFieldTypeRefs_QualifiedTypeIsNotResolved.
-func csTypeRefCandidates(typ ts.Node, src []byte) []string {
+//
+// `typeParams` is the shadow set csVisibleTypeParameterNames computed for this
+// field's position (#7041). A name bound there is DROPPED as a candidate and
+// nothing else about the field changes — the field's OTHER candidates survive.
+// That distinction is the whole of the over-refusal direction: `Dict<T, Order>`
+// inside `class Box<T>` must still reach `Dict` and `Order`, and a refusal that
+// abandoned the field would delete two correct edges with no symptom (#7056).
+// Graded by the multiplicity rows of
+// TestCsharpFieldTypeRefs_7041_ParameterFormSpace (G10, G11, G12) at BOTH the
+// property and the record-positional anchor.
+func csTypeRefCandidates(typ ts.Node, src []byte, typeParams map[string]bool) []string {
 	var out []string
 	var walkType func(n ts.Node)
 	walkType = func(n ts.Node) {
@@ -124,7 +151,9 @@ func csTypeRefCandidates(typ ts.Node, src []byte) []string {
 		case "qualified_name", "alias_qualified_name":
 			return
 		case "identifier":
-			out = append(out, string(src[n.StartByte():n.EndByte()]))
+			if name := string(src[n.StartByte():n.EndByte()]); !typeParams[name] {
+				out = append(out, name)
+			}
 			return
 		}
 		for i := 0; i < int(n.NamedChildCount()); i++ {
@@ -133,6 +162,184 @@ func csTypeRefCandidates(typ ts.Node, src []byte) []string {
 	}
 	walkType(typ)
 	return out
+}
+
+// csVisibleTypeParameterNames returns every type-parameter name that shadows a
+// same-file type declaration at `node`'s position — the union of the
+// `type_parameter_list`s carried by every LEXICALLY ENCLOSING node.
+//
+// ── C#'s RULE, DERIVED, AND WHY IT IS NOT A PORT ──────────────────────────────
+//
+// ASCEND UNCONDITIONALLY. ECMA-334 §7.7 ("Scopes") gives the scope of a type
+// parameter declared by a type_parameter_list on a class_declaration as "the
+// class_base, type_parameter_constraints_clauses, and class_body of that
+// class_declaration", with the same sentence repeated for struct_declaration,
+// interface_declaration and delegate_declaration, and §7.7.1 makes the inner
+// declaration SHADOW the outer name. A nested type declaration is part of the
+// enclosing class_body, so a nested type's members are inside the outer
+// parameters' scope. Microsoft's COMPILER-MESSAGE page for CS0693 ("type
+// parameter 'T' has the same name as the type parameter from outer type") says
+// it directly — it describes "a generic member (such as a method or NESTED
+// TYPE) … inside a generic class" — and the diagnostic exists at all precisely
+// BECAUSE the outer parameter is visible in the nested declaration. At the CLR
+// level `Outer<T>.Inner` is `Outer`1+Inner`, generic over the same T.
+// (An earlier revision of this comment cited the "Generic Classes" guidance
+// page for the nested-type claim. It was checked on review and DOES NOT MENTION
+// NESTED TYPES; the citation was wrong and is corrected here rather than
+// quietly dropped.)
+//
+// That is the same IMPLEMENTATION as java's arm and a DIFFERENT justification,
+// and the difference matters because three sibling arms have three incompatible
+// rules and none of them is portable:
+//
+//	kotlin  ascends only through `inner` — a plain nested class does NOT capture,
+//	        so `T` there really names the same-file type.
+//	java    ascends unconditionally, but because the static-context reference is
+//	        ILLEGAL (javac: "non-static type variable P cannot be referenced from
+//	        a static context") — javac does not fall back to a top-level `P`.
+//	rust    does not ascend at all (E0401), and a top-level `struct T` does not
+//	        make rustc fall back either.
+//	C#      ascends unconditionally because the nested reference is LEGAL and
+//	        MEANS the outer parameter.
+//
+// "Which names are in scope" and "which names this pass may bind to" are
+// different questions. For C# they coincide, and the reason they coincide is
+// stated above rather than assumed from java's arm matching.
+//
+// ── WHAT COULD NOT BE VERIFIED ───────────────────────────────────────────────
+//
+// THERE IS NO C# COMPILER ON THE MACHINE THIS WAS WRITTEN ON — `csc`, `dotnet`,
+// `mono` and `mcs` are all absent, checked. Two arms of #7041 caught a wrong
+// language claim only because someone could run `javac` / `rustc`; nobody can
+// here, so the unverified rows are named instead of asserted:
+//
+//   - `static class` nested inside a generic class (fixture N4/`Sn4`). §7.7
+//     scopes the outer parameters over the whole class_body and C# nested types
+//     are always static in the Java sense, so it should compile — NOT
+//     DEMONSTRATED. The behaviour is safe either way: if legal, `Order` there is
+//     the parameter and refusing is right; if illegal, no program exercises the
+//     row. What would settle it: `csc` on
+//     `class Order{} class O<Order>{ static class S { public static Order A; } }`.
+//   - `[Mark]` on a type parameter where `class Mark : System.Attribute` is
+//     declared in the SAME FILE (fixture G13). Legal by the default
+//     AttributeUsage (all targets) and the optional-`Attribute`-suffix lookup
+//     rule — NOT DEMONSTRATED. Safe either way for the same reason as Sn4, and
+//     the KEEP half (`Mark` must still bind in field position, which is what
+//     kills a descendant-walk collector) only gets stronger if the form is
+//     legal. What would settle it: `csc` on that snippet.
+//   - `[App.Mark]` on a type parameter (fixture G9) — the same premise as G13
+//     with the attribute named by its QUALIFIED spelling. Recorded as a FOURTH
+//     unverified row but NOT as a second confirmation of the third: two rows
+//     sharing one premise are one premise.
+//   - `Order?` where `Order` is an UNCONSTRAINED type parameter (fixture G8).
+//     `T?` on an unconstrained parameter requires C# 9 or later — before that
+//     it is CS8627 — and the sibling `Real?` warns CS8632 outside a
+//     `#nullable enable` context. The row grades the `nullable_type` CST shape,
+//     which the parse produces at any LangVersion. NOT DEMONSTRATED.
+//
+// TWO ROWS WERE FOUND ILLEGAL AND FIXED rather than marked, because an illegal
+// program grades nothing at all. This list was RE-DERIVED under review of
+// #7075 after its own "exactly two rows" claim proved false in the dangerous
+// direction — a row asserted legal that was not:
+//
+//   - `interface G5<in Order, out Real> { Order A { get; set; } Real B { get;
+//     set; } }` was CS1961 twice — a contravariant `in` parameter cannot appear
+//     in a getter, a covariant `out` parameter cannot appear in a setter. G5 is
+//     the sole occupant of the "variance-annotated" and "interface" axes, so
+//     both were ungraded. Now `{ set; }` / `{ get; }`.
+//   - `class G9<[System.Obsolete] Order>` was CS0592: ObsoleteAttribute's
+//     AttributeUsage does not include GenericParameter. Now `[App.Mark]`.
+//
+// NOT WRITTEN AT ALL, and named rather than guessed: using a type parameter in
+// generic-CONSTRUCTOR position (`class B<D> { D<int,int> f; }`) — believed
+// illegal, so no fixture asserts anything about it; and a shadowing parameter on
+// a `delegate_declaration`, `method_declaration` or `local_function_statement`,
+// which are UNREACHABLE for a different and verified reason given below.
+//
+// ── NO DECLARATION-KIND LIST, AND WHY THAT IS SOUND ──────────────────────────
+//
+// The ascent matches on the node type `type_parameter_list` alone. THE SPELLING
+// WAS TAKEN FROM THE GRAMMAR, NOT FROM A SIBLING ARM: java's node is
+// `type_parameters` and rust's is `type_parameters`; C#'s is
+// `type_parameter_list`, so porting either spelling would have been dead code —
+// the scala failure mode (#7065), where two matched node types did not exist in
+// the grammar at all.
+//
+// Parsed from the pinned grammar's node-types.json (tree-sitter-c-sharp
+// v0.23.1), EXACTLY SEVEN node kinds can carry a `type_parameter_list`:
+// class_declaration, struct_declaration, interface_declaration,
+// record_declaration, delegate_declaration, method_declaration and
+// local_function_statement. Each scopes those parameters over precisely its own
+// subtree, so the lexical parent chain IS the scope chain and matching the list
+// node alone can neither miss a binder nor invent one. (enum_declaration is
+// absent — a C# enum cannot be generic.)
+//
+// THE LAST THREE ARE MATCHED AND CAN NEVER FIRE. csharp.go's walk RETURNS at
+// `method_declaration` and `constructor_declaration` without descending into the
+// body, so a type declared inside a method body is never walked and emits no
+// SCOPE.Schema/field record; `local_function_statement` only ever appears inside
+// such a body; and `delegate_declaration` has no body to declare a field in.
+// That is a property of the walk, not a claim about C#, and it is why no fixture
+// tries to produce a field anchored under one.
+func csVisibleTypeParameterNames(node ts.Node, src []byte) map[string]bool {
+	out := map[string]bool{}
+	if node == nil {
+		return out
+	}
+	for p := node.Parent(); p != nil; p = p.Parent() {
+		csCollectTypeParameterNames(p, src, out)
+	}
+	return out
+}
+
+// csCollectTypeParameterNames adds the names bound by `decl`'s own
+// `type_parameter_list` child, if it has one, to `into`.
+//
+// THE NAME IS READ FROM THE `name` FIELD OF `type_parameter`, never by scanning
+// for identifiers. The CST — dumped against tree-sitter-c-sharp v0.23.1, not
+// recalled — puts an attribute and a variance annotation as SIBLINGS of the
+// name inside the same `type_parameter`:
+//
+//	<T>                         type_parameter[name: identifier T]
+//	<in T, out R>               type_parameter[`in`, name: identifier T]
+//	<[System.Obsolete] T>       type_parameter[attribute_list[attribute[
+//	                              qualified_name[identifier System, identifier
+//	                              Obsolete]]], name: identifier T]
+//
+// A descendant identifier walk would therefore harvest an attribute's own name
+// as a shadowed type and DELETE the correct edges that type earns in field
+// position — the silent direction, and exactly what cost the scala arm its
+// guard. Probed directly: `ChildByFieldName("name")` returns `identifier=T` for
+// `[System.Obsolete] in T`, so the field accessor is immune to both.
+//
+// A CONSTRAINT CANNOT BE HARVESTED AT ALL, structurally. `where T : Order` is a
+// `type_parameter_constraints_clause`, a SIBLING of `type_parameter_list` under
+// the declaration, never a child of it — so `Order` is out of this function's
+// reach no matter how it walks. That is what makes cpp's shipped bug (#7057,
+// which collected `template<typename T = Order>`'s default argument and silently
+// deleted a correct edge) unreproducible here. Graded anyway, not assumed:
+// row G3.B of TestCsharpFieldTypeRefs_7041_ParameterFormSpace is the constraint
+// type in field position, and it must bind.
+func csCollectTypeParameterNames(decl ts.Node, src []byte, into map[string]bool) {
+	for i := 0; i < int(decl.ChildCount()); i++ {
+		tpl := decl.Child(i)
+		if tpl == nil || tpl.Type() != "type_parameter_list" {
+			continue
+		}
+		for j := 0; j < int(tpl.ChildCount()); j++ {
+			tp := tpl.Child(j)
+			if tp == nil || tp.Type() != "type_parameter" {
+				continue
+			}
+			nm := tp.ChildByFieldName("name")
+			if nm == nil {
+				continue
+			}
+			if name := string(src[nm.StartByte():nm.EndByte()]); name != "" {
+				into[name] = true
+			}
+		}
+	}
 }
 
 // csFieldTypeTarget is one in-file type declaration a field can point at: the
