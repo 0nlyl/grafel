@@ -13,6 +13,7 @@ import type {
   GraphPayloadWire,
   EntityDetailWire,
 } from "@/data/types";
+import type { GraphRequestParams } from "@/lib/graph-request-options";
 
 export const graphQueryKey = (groupId: string, repos?: string[], filterKind?: string, lod?: string) =>
   ["graph", groupId, repos?.slice().sort().join(",") ?? "", filterKind ?? "", lod ?? ""] as const;
@@ -40,6 +41,10 @@ function normalize(w: GraphPayloadWire): GraphPayload {
     })),
     repos: w.repos.map((r) => ({ id: r.id, language: r.language, colorIndex: r.color_index })),
     totalNodeCount: w.total_node_count,
+    totalEdgeCount: w.total_edge_count ?? w.edges.length,
+    nodeTruncated: w.node_truncated ?? false,
+    edgeTruncated: w.edge_truncated ?? false,
+    limits: w.limits ? { nodeCap: w.limits.node_cap, edgeCap: w.limits.edge_cap } : undefined,
   };
 }
 
@@ -50,7 +55,7 @@ function normalize(w: GraphPayloadWire): GraphPayload {
  */
 export function useGraph(
   groupId: string,
-  opts?: { repos?: string[]; filterKind?: string; lod?: string },
+  opts: GraphRequestParams = { lod: "mid" },
   queryOpts?: { enabled?: boolean },
 ) {
   return useQuery({
