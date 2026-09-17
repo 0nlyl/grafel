@@ -19,7 +19,7 @@ export const graphQueryKey = (groupId: string, repos?: string[], filterKind?: st
   ["graph", groupId, repos?.slice().sort().join(",") ?? "", filterKind ?? "", lod ?? ""] as const;
 
 /** Normalize the wire payload (snake_case) into the domain shape. */
-function normalize(w: GraphPayloadWire): GraphPayload {
+export function normalizeGraphPayload(w: GraphPayloadWire): GraphPayload {
   return {
     nodes: w.nodes.map((n) => ({
       id: n.id,
@@ -60,7 +60,7 @@ export function useGraph(
 ) {
   return useQuery({
     queryKey: graphQueryKey(groupId, opts?.repos, opts?.filterKind, opts?.lod),
-    queryFn: async () => normalize(await api.getGraph(groupId, opts)),
+    queryFn: async () => normalizeGraphPayload(await api.getGraph(groupId, opts)),
     // The payload is large + server-cached (ETag/304); keep it warm.
     staleTime: 5 * 60 * 1000,
     // #5446 — the full-payload fetch is the FALLBACK path: the Graph screen

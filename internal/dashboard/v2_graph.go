@@ -410,14 +410,6 @@ func (s *Server) buildV2GraphWithLimits(repos []*DashRepo, grp *DashGroup, filte
 	}
 }
 
-func capGraphEdges(nodes []v2GraphNode, edges []v2GraphEdge, cap int) ([]v2GraphEdge, bool) {
-	return collectCappedGraphEdges(nodes, cap, func(yield func(v2GraphEdge)) {
-		for _, edge := range edges {
-			yield(edge)
-		}
-	})
-}
-
 type rankedGraphEdge struct {
 	edge     v2GraphEdge
 	score    float64
@@ -469,7 +461,7 @@ func collectCappedGraphEdges(nodes []v2GraphNode, cap int, visit func(func(v2Gra
 		return result, inputCount != candidateCount
 	}
 
-	best := make(rankedGraphEdgeHeap, 0, cap)
+	best := make(rankedGraphEdgeHeap, 0, min(cap, 4096))
 	visit(func(edge v2GraphEdge) {
 		inputCount++
 		sourceRank, sourceOK := visible[edge.Source]

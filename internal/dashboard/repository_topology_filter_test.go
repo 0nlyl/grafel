@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -114,6 +115,74 @@ func TestFilterRepositoryTopologyHandlesSameNodeAndMissingPath(t *testing.T) {
 	})
 	if missing.PathFound || len(missing.Nodes) != 0 || len(missing.Edges) != 0 {
 		t.Fatalf("missing path = %#v", missing)
+	}
+}
+
+func TestFilterRepositoryTopologyCapsRepositoryNodes(t *testing.T) {
+	repositories := make([]string, repositoryTopologyMaxNodes+1)
+	for index := range repositories {
+		repositories[index] = fmt.Sprintf("repo-%04d", index)
+	}
+	grp := repositoryTopologyTestGroup(repositories...)
+	for index := 0; index < len(repositories)-1; index++ {
+		grp.Links = append(grp.Links, CrossRepoLink{
+			Source:     fmt.Sprintf("%s::client", repositories[index]),
+			Target:     fmt.Sprintf("%s::server", repositories[index+1]),
+			Channel:    "dubbo",
+			Identifier: fmt.Sprintf("dubbo:Contract%04d", index),
+			Confidence: 1,
+		})
+	}
+
+	got := filterRepositoryTopology(buildRepositoryTopologyIndex(grp), repositoryTopologyQuery{})
+	if got.Summary.PreLimitNodes != repositoryTopologyMaxNodes+1 {
+		t.Fatalf("pre-limit nodes = %d, want %d", got.Summary.PreLimitNodes, repositoryTopologyMaxNodes+1)
+	}
+	if len(got.Nodes) != repositoryTopologyMaxNodes {
+		t.Fatalf("nodes = %d, want %d", len(got.Nodes), repositoryTopologyMaxNodes)
+	}
+	if len(got.Edges) != repositoryTopologyMaxNodes-1 {
+		t.Fatalf("edges = %d, want %d after removing the edge to the omitted repository", len(got.Edges), repositoryTopologyMaxNodes-1)
+	}
+	if !got.Truncated || got.Limits.MaxNodes != repositoryTopologyMaxNodes {
+		t.Fatalf("truncation metadata = %#v", got)
+	}
+}
+
+func TestFilterRepositoryTopologyCapsAggregatedEdges(t *testing.T) {
+	const repositoryCount = 64
+	repositories := make([]string, repositoryCount)
+	for index := range repositories {
+		repositories[index] = fmt.Sprintf("repo-%04d", index)
+	}
+	grp := repositoryTopologyTestGroup(repositories...)
+	for source := 0; source < repositoryCount && len(grp.Links) < repositoryTopologyMaxEdges+1; source++ {
+		for target := 0; target < repositoryCount && len(grp.Links) < repositoryTopologyMaxEdges+1; target++ {
+			if source == target {
+				continue
+			}
+			grp.Links = append(grp.Links, CrossRepoLink{
+				Source:     fmt.Sprintf("%s::client", repositories[source]),
+				Target:     fmt.Sprintf("%s::server", repositories[target]),
+				Channel:    "dubbo",
+				Identifier: fmt.Sprintf("dubbo:Contract%04d", len(grp.Links)),
+				Confidence: 1,
+			})
+		}
+	}
+
+	got := filterRepositoryTopology(buildRepositoryTopologyIndex(grp), repositoryTopologyQuery{})
+	if got.Summary.PreLimitEdges != repositoryTopologyMaxEdges+1 {
+		t.Fatalf("pre-limit edges = %d, want %d", got.Summary.PreLimitEdges, repositoryTopologyMaxEdges+1)
+	}
+	if len(got.Edges) != repositoryTopologyMaxEdges {
+		t.Fatalf("edges = %d, want %d", len(got.Edges), repositoryTopologyMaxEdges)
+	}
+	if len(got.Nodes) > repositoryCount {
+		t.Fatalf("nodes = %d, want at most %d", len(got.Nodes), repositoryCount)
+	}
+	if !got.Truncated || got.Limits.MaxEdges != repositoryTopologyMaxEdges {
+		t.Fatalf("truncation metadata = %#v", got)
 	}
 }
 

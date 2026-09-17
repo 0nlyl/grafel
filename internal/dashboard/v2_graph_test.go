@@ -56,28 +56,6 @@ func TestLodLimitsAreFinite(t *testing.T) {
 	}
 }
 
-func TestCapGraphEdgesDropsEdgesDeterministicallyAndRecomputesDegree(t *testing.T) {
-	nodes := []v2GraphNode{
-		{ID: "a", PageRank: 0.9}, {ID: "b", PageRank: 0.8}, {ID: "c", PageRank: 0.2}, {ID: "d", PageRank: 0.1},
-	}
-	edges := []v2GraphEdge{
-		{Source: "c", Target: "d", Kind: "CALLS"},
-		{Source: "a", Target: "c", Kind: "CALLS"},
-		{Source: "a", Target: "b", Kind: "CALLS"},
-	}
-	got, truncated := capGraphEdges(nodes, edges, 2)
-	if !truncated || !reflect.DeepEqual(got, []v2GraphEdge{
-		{Source: "a", Target: "b", Kind: "CALLS"},
-		{Source: "a", Target: "c", Kind: "CALLS"},
-	}) {
-		t.Fatalf("edges = %#v truncated=%v", got, truncated)
-	}
-	recomputeServedDegree(nodes, got)
-	if nodes[0].Degree != 2 || nodes[1].Degree != 1 || nodes[2].Degree != 1 || nodes[3].Degree != 0 {
-		t.Fatalf("degrees not recomputed: %#v", nodes)
-	}
-}
-
 func TestCollectCappedGraphEdgesMatchesDeterministicOrdering(t *testing.T) {
 	nodes := []v2GraphNode{
 		{ID: "a", PageRank: 0.9}, {ID: "b", PageRank: 0.8}, {ID: "c", PageRank: 0.2}, {ID: "d", PageRank: 0.1},
@@ -98,6 +76,55 @@ func TestCollectCappedGraphEdgesMatchesDeterministicOrdering(t *testing.T) {
 	}) {
 		t.Fatalf("edges = %#v truncated=%v", got, truncated)
 	}
+}
+
+func TestBuildV2GraphMetadataReportsEdgesDroppedByNodeThinning(t *testing.T) {
+	grp := graphMetadataTestGroup()
+	got := (&Server{}).buildV2GraphWithLimits(
+		[]*DashRepo{grp.Repos["testrepo"]}, grp, "", false, false, 2, 100,
+	)
+
+	if got.TotalEdgeCount != 3 || len(got.Edges) != 1 {
+		t.Fatalf("edge counts = total:%d served:%d, want total:3 served:1", got.TotalEdgeCount, len(got.Edges))
+	}
+	if !got.NodeTruncated || !got.EdgeTruncated {
+		t.Fatalf("truncation metadata = node:%v edge:%v", got.NodeTruncated, got.EdgeTruncated)
+	}
+	if !reflect.DeepEqual(got.Edges, []v2GraphEdge{{Source: "testrepo::a", Target: "testrepo::b", Kind: "CALLS"}}) {
+		t.Fatalf("edges = %#v", got.Edges)
+	}
+}
+
+func TestBuildV2GraphMetadataReportsEdgeCapWithoutNodeThinning(t *testing.T) {
+	grp := graphMetadataTestGroup()
+	got := (&Server{}).buildV2GraphWithLimits(
+		[]*DashRepo{grp.Repos["testrepo"]}, grp, "", false, false, 10, 2,
+	)
+
+	if got.TotalEdgeCount != 3 || len(got.Edges) != 2 {
+		t.Fatalf("edge counts = total:%d served:%d, want total:3 served:2", got.TotalEdgeCount, len(got.Edges))
+	}
+	if got.NodeTruncated || !got.EdgeTruncated {
+		t.Fatalf("truncation metadata = node:%v edge:%v", got.NodeTruncated, got.EdgeTruncated)
+	}
+	if got.Limits.EdgeCap != 2 {
+		t.Fatalf("edge cap = %d, want 2", got.Limits.EdgeCap)
+	}
+}
+
+func graphMetadataTestGroup() *DashGroup {
+	ranks := []float64{0.9, 0.8, 0.2, 0.1}
+	ids := []string{"a", "b", "c", "d"}
+	entities := make([]graph.Entity, len(ids))
+	for index, id := range ids {
+		rank := ranks[index]
+		entities[index] = graph.Entity{ID: id, Kind: "function", PageRank: &rank}
+	}
+	return makeGraphTestGroup(entities, []graph.Relationship{
+		{FromID: "a", ToID: "b", Kind: "CALLS"},
+		{FromID: "a", ToID: "c", Kind: "CALLS"},
+		{FromID: "c", ToID: "d", Kind: "CALLS"},
+	})
 }
 
 func TestV2GraphLoDMetadataReportsAppliedLimits(t *testing.T) {

@@ -45,6 +45,7 @@ import { CoverageKindIndicator } from "@/components/ui";
 import { useGraphJarvisReplay } from "@/hooks/use-graph-jarvis-replay";
 import { buildUndirectedAdjacency, bfsEgo as bfsEgoOver } from "@/lib/ego-bfs";
 import { deriveGraphLoading } from "@/lib/graph-loading-state";
+import { GraphTruncationBanner } from "@/components/graph/graph-truncation-banner";
 
 /**
  * #1386 — derive the entity-level "module key" from a node's source file.
@@ -586,8 +587,6 @@ export default function GraphScreen() {
     (prunedHubCount > 0
       ? ` · −${prunedHubCount} hub${prunedHubCount === 1 ? "" : "s"}`
       : "");
-  const truncation = data?.nodeTruncated || data?.edgeTruncated;
-
   // Edge-kind filters count as "active" when they deviate from the default-on
   // set (structural kinds ON, semantic kinds OFF): each structural kind turned
   // OFF and each semantic kind turned ON is one active filter.
@@ -687,12 +686,7 @@ export default function GraphScreen() {
       {/* Intro / legend header — the landing screen otherwise has no lead-in.
           Kept compact so the canvas stays the hero. */}
       <div className="shrink-0 border-b border-border bg-bg px-4 py-2 space-y-2">
-        {truncation && (
-          <div className="rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            Bounded result: {data?.nodes.length.toLocaleString()} / {data?.totalNodeCount.toLocaleString()} nodes and {data?.edges.length.toLocaleString()} / {(data?.totalEdgeCount ?? data?.edges.length ?? 0).toLocaleString()} edges.
-            {data?.limits ? ` Caps: ${data.limits.nodeCap.toLocaleString()} nodes, ${data.limits.edgeCap.toLocaleString()} edges.` : ""}
-          </div>
-        )}
+        <GraphTruncationBanner data={data} />
       </div>
 
       {/* Canvas + overlays */}
